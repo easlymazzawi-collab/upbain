@@ -2450,8 +2450,8 @@ from core.inventory import get_all_inventory
 
 async def _source_build_and_forward(slot_data, channels, cmd):
     from core.saved_staging import maybe_stage_slot_data
-    from platform.config import layer_enabled, load_platform_config
-    from platform.hooks import after_auto_forward
+    from research_platform.config import layer_enabled, load_platform_config
+    from research_platform.hooks import after_auto_forward
 
     plat = load_platform_config()
     skip_forward = bool(
@@ -2784,8 +2784,8 @@ async def _run_scheduled_cycle(*, manual=False):
 
         mark_run_done("ok")
         try:
-            from platform.config import load_platform_config
-            from platform.ads import recheck_all_ads_aliases
+            from research_platform.config import load_platform_config
+            from research_platform.ads import recheck_all_ads_aliases
             if load_platform_config().get("enabled"):
                 r = recheck_all_ads_aliases()
                 append_log("info", f"Platform recheck ads: {r}")
@@ -2827,8 +2827,8 @@ async def _platform_rollup_loop():
     while True:
         await asyncio.sleep(86400)
         try:
-            from platform.config import load_platform_config
-            from platform.rollup import run_rollup_all
+            from research_platform.config import load_platform_config
+            from research_platform.rollup import run_rollup_all
             if load_platform_config().get("enabled"):
                 r = await run_rollup_all()
                 append_log("info", f"Platform rollup: {len(r)} bot")
@@ -3084,8 +3084,8 @@ async def main():
     _start_web_server()
 
     try:
-        from platform.bot_delivery import start_delivery_bot_background
-        from platform.config import load_platform_config
+        from research_platform.bot_delivery import start_delivery_bot_background
+        from research_platform.config import load_platform_config
 
         if load_platform_config().get("enabled"):
             asyncio.ensure_future(start_delivery_bot_background())

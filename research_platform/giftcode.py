@@ -7,8 +7,8 @@ import string
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from platform.db import connect, init_db
-from platform.vip import grant_vip
+from research_platform.db import connect, init_db
+from research_platform.vip import grant_vip
 
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 

@@ -6,8 +6,8 @@ import asyncio
 import logging
 from typing import Any
 
-from platform.bot_handlers import build_handlers_for_bot
-from platform.config import layer_enabled, list_bots_config, load_platform_config
+from research_platform.bot_handlers import build_handlers_for_bot
+from research_platform.config import layer_enabled, list_bots_config, load_platform_config
 
 log = logging.getLogger("platform.bot_manager")
 
@@ -64,7 +64,7 @@ async def start_all_bots() -> None:
     plat = load_platform_config()
     if not plat.get("enabled"):
         return
-    from platform.archive_index import sync_all_bots_from_config
+    from research_platform.archive_index import sync_all_bots_from_config
 
     bot_ids = sync_all_bots_from_config(plat)
     configs = list_bots_config(plat)

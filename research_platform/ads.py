@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from platform.db import connect, init_db, json_dumps, json_loads, row_to_dict
+from research_platform.db import connect, init_db, json_dumps, json_loads, row_to_dict
 
 log = logging.getLogger("platform.ads")
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")

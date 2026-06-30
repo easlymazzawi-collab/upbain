@@ -6,10 +6,10 @@ import logging
 from datetime import date, timedelta
 from zoneinfo import ZoneInfo
 
-from platform.archive_index import list_days, sync_bot_from_config
-from platform.config import list_bots_config, load_platform_config
-from platform.db import connect, init_db, json_dumps, json_loads
-from platform.dates import topic_label_vn
+from research_platform.archive_index import list_days, sync_bot_from_config
+from research_platform.config import list_bots_config, load_platform_config
+from research_platform.db import connect, init_db, json_dumps, json_loads
+from research_platform.dates import topic_label_vn
 
 log = logging.getLogger("platform.rollup")
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")

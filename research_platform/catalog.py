@@ -7,7 +7,7 @@ import unicodedata
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from platform.db import connect, init_db, json_dumps, json_loads
+from research_platform.db import connect, init_db, json_dumps, json_loads
 
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 

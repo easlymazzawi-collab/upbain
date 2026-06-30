@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from platform.orchestrator import index_after_channel_forward
+from research_platform.orchestrator import index_after_channel_forward
 
 log = logging.getLogger("platform.hook")
 

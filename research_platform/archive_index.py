@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from platform.dates import date_vn_str, topic_label_vn, today_vn
-from platform.db import connect, init_db, json_dumps, json_loads, row_to_dict
+from research_platform.dates import date_vn_str, topic_label_vn, today_vn
+from research_platform.db import connect, init_db, json_dumps, json_loads, row_to_dict
 
 log = logging.getLogger("platform.archive")
 
@@ -232,7 +232,7 @@ def get_delivery_progress(user_id: int, day_id: int) -> dict | None:
 
 
 def sync_all_bots_from_config(plat: dict | None = None) -> list[int]:
-    from platform.config import list_bots_config
+    from research_platform.config import list_bots_config
 
     ids = []
     for i, b in enumerate(list_bots_config(plat)):

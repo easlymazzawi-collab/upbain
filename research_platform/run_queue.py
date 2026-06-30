@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from platform.config import get_bot_for_source, list_bots_config, load_platform_config
+from research_platform.config import get_bot_for_source, list_bots_config, load_platform_config
 
 log = logging.getLogger("platform.run_queue")
 

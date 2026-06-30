@@ -6,31 +6,31 @@ import asyncio
 import logging
 from typing import Any
 
-from platform.archive_index import (
+from research_platform.archive_index import (
     get_day_by_label,
     get_day_items,
     get_delivery_progress,
     save_delivery_progress,
     upsert_user,
 )
-from platform.catalog import (
+from research_platform.catalog import (
     apply_spam_ban,
     is_spam_contribution,
     queue_contribution,
     search_media_sets,
 )
-from platform.config import layer_enabled, load_platform_config
-from platform.dates import parse_day_label, topic_label_vn, today_vn
-from platform.giftcode import redeem_gift_code
-from platform.membership import gate_or_prompt, pop_pending
-from platform.share import (
+from research_platform.config import layer_enabled, load_platform_config
+from research_platform.dates import parse_day_label, topic_label_vn, today_vn
+from research_platform.giftcode import redeem_gift_code
+from research_platform.membership import gate_or_prompt, pop_pending
+from research_platform.share import (
     create_day_share_ref,
     ensure_user_ref_code,
     leaderboard,
     record_share_click,
     resolve_ref_payload,
 )
-from platform.vip import can_access_archive, get_user_vip_status, list_vip_plans, user_is_vip
+from research_platform.vip import can_access_archive, get_user_vip_status, list_vip_plans, user_is_vip
 
 log = logging.getLogger("platform.bot_handlers")
 
@@ -159,7 +159,7 @@ def build_handlers_for_bot(bot_cfg: dict, bot_db_id: int | None):
                 record_share_click(ref["ref_code"], msg.from_user.id)
             elif ref.get("type") == "day_ref":
                 record_share_click(ref["ref_code"], msg.from_user.id)
-                from platform.db import connect
+                from research_platform.db import connect
                 with connect() as c:
                     row = c.execute("SELECT topic_label FROM days WHERE id=?", (ref["day_id"],)).fetchone()
                 if row:
@@ -178,7 +178,7 @@ def build_handlers_for_bot(bot_cfg: dict, bot_db_id: int | None):
 
     @dp.callback_query(F.data == "mem_recheck")
     async def cb_mem_recheck(cb: CallbackQuery):
-        from platform.membership import check_membership
+        from research_platform.membership import check_membership
         ok, _ = await check_membership(cb.bot, cb.from_user.id)
         if ok:
             await cb.message.answer("✅ Đã join — dùng menu bên dưới.", reply_markup=_keyboard())
@@ -322,7 +322,7 @@ def build_handlers_for_bot(bot_cfg: dict, bot_db_id: int | None):
     async def paid(msg: Message):
         payload = msg.successful_payment.invoice_payload or ""
         if payload.startswith("vip_plan_"):
-            from platform.vip import grant_vip
+            from research_platform.vip import grant_vip
             plan_id = int(payload.split("_")[-1])
             grant_vip(msg.from_user.id, plan_id, source="stars")
             await msg.answer("✅ Thanh toán Stars OK — VIP đã kích hoạt.")

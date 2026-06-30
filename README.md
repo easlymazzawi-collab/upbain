@@ -36,6 +36,9 @@ pip install -r requirements.txt
 python tool__tauto_nostage.py
 ```
 
+**Windows:** chạy bằng `python tool__tauto_nostage.py` trong terminal (không double-click file `.py`).
+Thư mục code Research Platform là `research_platform/` — **không** đặt tên `platform` (trùng Python stdlib, Pyrogram crash).
+
 Lần đầu chưa có API → tool chỉ mở web. Vào tab **Telegram & Bot** nhập `api_id`, `api_hash`, chat ID → restart tool.
 
 ## Web dashboard

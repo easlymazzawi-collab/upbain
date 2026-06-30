@@ -11,10 +11,10 @@
 
 ## P1 — 10 bot + orchestrator ✅
 
-- [x] Queue tuần tự 10 nguồn (`platform/run_queue.py`, `queue_order`)
+- [x] Queue tuần tự 10 nguồn (`research_platform/run_queue.py`, `queue_order`)
 - [x] Restart bot đơn/all (`bot_manager.restart_bot`)
 - [x] Resume delivery (`user_deliveries`)
-- [x] Recheck ads alias (`platform/ads.py`)
+- [x] Recheck ads alias (`research_platform/ads.py`)
 
 ## P2 — Stars + VIP + giftcode ✅
 

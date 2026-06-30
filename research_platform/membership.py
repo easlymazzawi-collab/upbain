@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from platform.config import load_platform_config
+from research_platform.config import load_platform_config
 
 log = logging.getLogger("platform.membership")
 

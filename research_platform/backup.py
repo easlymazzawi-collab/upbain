@@ -12,9 +12,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from core.config_store import AUTO_CONFIG_FILE, DATA_DIR
-from platform.archive_index import list_days
-from platform.db import DB_PATH, connect, init_db
-from platform.dates import date_vn_str, today_vn
+from research_platform.archive_index import list_days
+from research_platform.db import DB_PATH, connect, init_db
+from research_platform.dates import date_vn_str, today_vn
 
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 

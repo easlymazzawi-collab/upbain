@@ -6,8 +6,8 @@ import logging
 from typing import Any
 
 from core.link_parser import msg_link
-from platform.ads import apply_aliases_to_items
-from platform.archive_index import (
+from research_platform.ads import apply_aliases_to_items
+from research_platform.archive_index import (
     find_bot_by_source,
     get_day_by_label,
     get_or_create_day,
@@ -15,8 +15,8 @@ from platform.archive_index import (
     replace_day_items,
     sync_bot_from_config,
 )
-from platform.config import get_bot_for_source, layer_enabled, list_bots_config, load_platform_config
-from platform.dates import topic_label_vn, today_vn
+from research_platform.config import get_bot_for_source, layer_enabled, list_bots_config, load_platform_config
+from research_platform.dates import topic_label_vn, today_vn
 
 log = logging.getLogger("platform.orchestrator")
 
@@ -115,7 +115,7 @@ async def index_after_channel_forward(
     items = apply_aliases_to_items(items)
     count = replace_day_items(day["id"], items, channel_sent=True)
     if next_pin_msg_id:
-        from platform.db import connect
+        from research_platform.db import connect
         with connect() as conn:
             conn.execute(
                 "UPDATE days SET next_src_msg_id=? WHERE id=?",
@@ -124,7 +124,7 @@ async def index_after_channel_forward(
 
     # Recheck ads sau index
     try:
-        from platform.ads import recheck_ads_aliases_for_day
+        from research_platform.ads import recheck_ads_aliases_for_day
         recheck_ads_aliases_for_day(day["id"])
     except Exception as e:
         log.warning("recheck ads: %s", e)

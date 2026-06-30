@@ -1,6 +1,6 @@
 """Bot delivery — re-export bot_manager (multi-bot P1+)."""
 
-from platform.bot_manager import (
+from research_platform.bot_manager import (
     bot_status,
     restart_bot,
     start_delivery_bot_background,

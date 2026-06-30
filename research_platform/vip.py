@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from platform.db import connect, init_db, row_to_dict
+from research_platform.db import connect, init_db, row_to_dict
 
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
@@ -128,7 +128,7 @@ def get_user_vip_status(user_id: int) -> dict:
 
 
 def can_access_archive(user_id: int, *, require_vip: bool) -> tuple[bool, str]:
-    from platform.catalog import get_user_spam_ban
+    from research_platform.catalog import get_user_spam_ban
 
     ban = get_user_spam_ban(user_id)
     if ban:
