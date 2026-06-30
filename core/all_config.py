@@ -32,7 +32,7 @@ def apply_link_fields(task: dict[str, Any]) -> dict[str, Any]:
     out.setdefault("use_ads", False)
     out.setdefault("xep_cpa", 1)
     out.setdefault("xep_mode", "normal")
-    out.setdefault("run_after_regular", True)
+    out.setdefault("run_after_regular", False)
     out.setdefault("pin_mode", out.get("pin_mode") or "latest")
     return out
 

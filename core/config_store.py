@@ -51,7 +51,7 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
         "source_topic_id": None,
         "source_title": "/all",
         "selected_channel_ids": [],
-        "run_after_regular": True,
+        "run_after_regular": False,
         "use_ads": False,
         "xep_cpa": 1,
         "xep_mode": "normal",

@@ -1518,6 +1518,14 @@ async def _start_forward(slot, results, query_display: str = ""):
     content_med = slot.get("total_media_count", 0)
     media_str   = f"{content_n} bài / {content_med} media" if content_med else f"{content_n} bài"
     slot["awaiting_channel"] = False
+    if slot.get("_auto_forward_wait"):
+        await safe_send(
+            f"📡 Forward → {len(results)} kênh: {names}\n"
+            f"📦 {media_str} — {len(slot['final_sequence'])} seq items\n"
+            f"▶️ Đang up kênh…"
+        )
+        await do_forward_job(slot, results)
+        return
     await safe_send(
         f"📡 Forward → {len(results)} kênh: {names}\n"
         f"📦 {media_str} — {len(slot['final_sequence'])} seq items\n"
@@ -2385,6 +2393,7 @@ async def _source_build_and_forward(slot_data, channels, cmd):
     slot["skip_ads"]            = not slot_data.get("use_ads", True)
     slot["_auto_forward_channels"] = channels
     slot["_auto_forward_cmd"]   = f"/{cmd}"
+    slot["_auto_forward_wait"]  = True
     if slot_data.get("use_ads") and not slot["ads_msgs"]:
         await load_ads_into(slot)
     await build_sequence_for_slot(
@@ -2482,24 +2491,6 @@ async def _try_auto_source_topic(
     if key_src and not key_src.get("enabled", True):
         return
 
-    async def _after_regular():
-        if branch != BRANCH_ADS:
-            return
-        cfg2 = load_auto_config()
-        task = cfg2.get("all_task", {})
-        plain = cfg2.get("plain_task") or {}
-        if task.get("run_after_regular") and (task.get("enabled") or plain.get("enabled")):
-            await run_all_task(
-                app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
-                build_and_forward_all=_all_build_and_forward,
-            )
-
-    async def _fwd_seq(ch_id, seq):
-        await forward_sequence_to_channel(ch_id, list(seq))
-
-    async def _fwd_all(ch_id, seq):
-        await forward_sequence_to_channel(ch_id, list(seq))
-
     await run_topic_batch(
         app, src_id, topic_id, topic_title or "",
         notify=_notify,
@@ -2510,7 +2501,6 @@ async def _try_auto_source_topic(
         force_run=force_run or manual,
         branch=branch,
     )
-    asyncio.ensure_future(_after_regular())
 
 
 async def _stock_poll_run(kind, sid, tid, title, *, check_only=False, force_run=False, branch=BRANCH_ADS):
@@ -2650,6 +2640,7 @@ async def _run_scheduled_cycle(*, manual=False):
     task = cfg.get("all_task", {})
     plain = cfg.get("plain_task") or {}
     if sch.get("run_all_task_after", True) and (task.get("enabled") or plain.get("enabled")):
+        await _notify("📦 Tất cả topic đã up xong — bắt đầu /all task")
         mark_run_start("/all task")
         await run_all_task(
             app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,

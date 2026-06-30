@@ -163,7 +163,7 @@ class AllTaskIn(BaseModel):
     source_topic_id: int | None = None
     source_title: str = ""
     selected_channel_ids: list[int] = []
-    run_after_regular: bool = True
+    run_after_regular: bool = False
     use_ads: bool = False
     xep_cpa: int = 1
     xep_mode: str = "normal"
