@@ -3,124 +3,65 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>UpBain Control v26</title>
+  <title>UpBain Control v27</title>
   <style>
     :root {
-      --bg: #0f1419;
-      --card: #1a2332;
-      --border: #2d3a4f;
-      --text: #e7ecf3;
-      --muted: #8b9cb3;
-      --accent: #3b82f6;
-      --accent2: #10b981;
-      --warn: #f59e0b;
-      --danger: #ef4444;
+      --bg: #0f1419; --card: #1a2332; --border: #2d3a4f; --text: #e7ecf3;
+      --muted: #8b9cb3; --accent: #3b82f6; --accent2: #10b981;
+      --warn: #f59e0b; --danger: #ef4444;
     }
     * { box-sizing: border-box; }
-    body {
-      font-family: "Segoe UI", system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      margin: 0;
-      line-height: 1.5;
-    }
-    header {
-      padding: 1rem 1.5rem;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-    }
+    body { font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; line-height: 1.5; }
+    header { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; }
     header h1 { margin: 0; font-size: 1.25rem; }
-    header span { color: var(--muted); font-size: 0.85rem; }
+    .live { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--muted); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent2); animation: pulse 2s infinite; }
+    @keyframes pulse { 50% { opacity: 0.4; } }
     main { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
     .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
-    .tabs button {
-      background: var(--card);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-      cursor: pointer;
-    }
+    .tabs button { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; }
     .tabs button.active { background: var(--accent); border-color: var(--accent); }
-    .panel { display: none; }
-    .panel.active { display: block; }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.25rem;
-      margin-bottom: 1rem;
-    }
+    .panel { display: none; } .panel.active { display: block; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; }
     .card h2 { margin: 0 0 1rem; font-size: 1rem; }
     label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.25rem; }
-    input, select, textarea {
-      width: 100%;
-      padding: 0.5rem 0.75rem;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: var(--bg);
-      color: var(--text);
-      margin-bottom: 0.75rem;
-    }
+    input, select, textarea { width: 100%; padding: 0.5rem 0.75rem; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); margin-bottom: 0.75rem; }
     .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; }
-    button.primary {
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      padding: 0.6rem 1.2rem;
-      border-radius: 8px;
-      cursor: pointer;
-      font-weight: 600;
-    }
-    button.secondary {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-      cursor: pointer;
-    }
-    .badge {
-      display: inline-block;
-      padding: 0.15rem 0.5rem;
-      border-radius: 999px;
-      font-size: 0.75rem;
-      background: #243044;
-    }
+    button.primary { background: var(--accent); color: #fff; border: none; padding: 0.6rem 1.2rem; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; }
+    .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.75rem; background: #243044; }
     .badge.warn { background: #422006; color: var(--warn); }
     .badge.ok { background: #064e3b; color: var(--accent2); }
+    .badge.run { background: #1e3a5f; color: var(--accent); }
     table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
     th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border); }
     .ch-list { max-height: 320px; overflow-y: auto; }
-    .ch-item {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.4rem 0;
-      border-bottom: 1px solid var(--border);
-    }
-    .toast {
-      position: fixed; bottom: 1rem; right: 1rem;
-      background: var(--accent2); color: #fff;
-      padding: 0.75rem 1rem; border-radius: 8px;
-      display: none; z-index: 99;
-    }
+    .ch-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
+    .toast { position: fixed; bottom: 1rem; right: 1rem; background: var(--accent2); color: #fff; padding: 0.75rem 1rem; border-radius: 8px; display: none; z-index: 99; }
     .hint { font-size: 0.8rem; color: var(--muted); margin-top: -0.5rem; margin-bottom: 0.75rem; }
+    .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+    .stat { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
+    .stat .val { font-size: 1.1rem; font-weight: 600; }
+    .stat .lbl { font-size: 0.75rem; color: var(--muted); }
+    #activity-log { max-height: 280px; overflow-y: auto; font-size: 0.82rem; font-family: ui-monospace, monospace; }
+    .log-line { padding: 0.25rem 0; border-bottom: 1px solid var(--border); color: var(--muted); }
+    .log-line.warn { color: var(--warn); }
+    .log-line.error { color: var(--danger); }
+    .time-chip { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0.25rem 0.25rem 0.25rem 0; padding: 0.25rem 0.5rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; }
   </style>
 </head>
 <body>
   <header>
     <div>
       <h1>UpBain Control</h1>
-      <span>v26 — nguồn topic · ghim · kho media · /all task</span>
+      <span>v27 — bot thông báo · lịch auto · real-time</span>
     </div>
-    <div>
-      <label style="display:inline;margin:0">Token API</label>
-      <input id="token" type="password" placeholder="WEB_TOKEN (nếu có)" style="width:180px;display:inline-block;margin:0" />
+    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+      <div class="live"><span class="dot" id="live-dot"></span><span id="live-label">Đang kết nối...</span></div>
+      <div>
+        <label style="display:inline;margin:0">Token web</label>
+        <input id="token" type="password" placeholder="web_token" style="width:140px;display:inline-block;margin:0" />
+      </div>
     </div>
   </header>
 
@@ -129,23 +70,25 @@
       <button class="active" data-tab="dashboard">Dashboard</button>
       <button data-tab="topics">Topic nguồn</button>
       <button data-tab="alltask">/all Task</button>
+      <button data-tab="schedule">Lịch auto</button>
+      <button data-tab="telegram">Telegram & Bot</button>
       <button data-tab="global">Cài đặt</button>
     </div>
 
     <section id="dashboard" class="panel active">
+      <div class="stat-row">
+        <div class="stat"><div class="lbl">Trạng thái</div><div class="val" id="st-status">—</div></div>
+        <div class="stat"><div class="lbl">Task hiện tại</div><div class="val" id="st-task">—</div></div>
+        <div class="stat"><div class="lbl">Lần chạy cuối</div><div class="val" id="st-last">—</div></div>
+        <div class="stat"><div class="lbl">Lần chạy tiếp</div><div class="val" id="st-next">—</div></div>
+      </div>
       <div class="card">
         <h2>Kho media theo topic</h2>
         <div id="inventory-table">Đang tải...</div>
       </div>
       <div class="card">
-        <h2>Hướng dẫn nhanh</h2>
-        <ul style="color:var(--muted);font-size:0.9rem;padding-left:1.2rem">
-          <li>Ghim bài <strong>tiếp theo cần up</strong> trong topic nguồn (1 bài = 1 đơn vị, album không tách).</li>
-          <li>Caption tin ghim: <code>30 media 2 ads</code> hoặc chỉnh override trên web.</li>
-          <li>Tool lấy bài từ topic → xếp ads → forward → unpin cũ + ghim bài kế.</li>
-          <li>Kênh <strong>no-ads</strong>: chỉ up content, không xen quảng cáo.</li>
-          <li>/all task: chọn kênh bên tab /all — chạy sau các lượt thường.</li>
-        </ul>
+        <h2>Nhật ký hoạt động (real-time)</h2>
+        <div id="activity-log"></div>
       </div>
     </section>
 
@@ -158,67 +101,106 @@
           <div><label>Tên topic</label><input id="t-title" placeholder="vitamin" /></div>
         </div>
         <div class="row">
-          <div><label>Media / lượt (override)</label><input id="t-media" type="number" placeholder="30" /></div>
-          <div><label>Ads / lượt (override)</label><input id="t-ads" type="number" placeholder="2" /></div>
+          <div><label>Media / lượt</label><input id="t-media" type="number" placeholder="30" /></div>
+          <div><label>Ads / lượt</label><input id="t-ads" type="number" placeholder="2" /></div>
           <div><label>Media mỗi vòng RR</label><input id="t-round" type="number" placeholder="8" /></div>
-          <div><label>/done mặc định (CPA)</label><input id="t-cpa" type="number" placeholder="1" /></div>
+          <div><label>/done mặc định</label><input id="t-cpa" type="number" placeholder="1" /></div>
         </div>
-        <label>Map lệnh kênh (phân cách dấu phẩy)</label>
-        <input id="t-cmds" placeholder="pro, real" />
-        <label>Kênh no-ads (lệnh, phân cách dấu phẩy)</label>
-        <input id="t-no-ads" placeholder="real, preview" />
-        <p class="hint">Scoped map: chat_id:topic trong topic_map.txt vẫn dùng được.</p>
+        <label>Map lệnh kênh</label><input id="t-cmds" placeholder="pro, real" />
+        <label>Kênh no-ads</label><input id="t-no-ads" placeholder="real, preview" />
         <button class="primary" onclick="saveTopic()">Lưu topic</button>
       </div>
-      <div class="card">
-        <h2>Danh sách topic đã cấu hình</h2>
-        <div id="topics-list"></div>
-      </div>
+      <div class="card"><h2>Danh sách topic</h2><div id="topics-list"></div></div>
     </section>
 
     <section id="alltask" class="panel">
       <div class="card">
-        <h2>/all Task — up cuối cùng</h2>
+        <h2>/all Task</h2>
         <label><input type="checkbox" id="all-enabled" /> Bật /all task</label>
         <div class="row">
-          <div><label>Chat nguồn riêng</label><input id="all-src" type="number" /></div>
-          <div><label>Topic ID nguồn</label><input id="all-topic" type="number" /></div>
+          <div><label>Chat nguồn</label><input id="all-src" type="number" /></div>
+          <div><label>Topic ID</label><input id="all-topic" type="number" /></div>
         </div>
-        <label><input type="checkbox" id="all-after" checked /> Chạy sau khi xong các lượt thường</label>
-        <h2 style="margin-top:1rem">Chọn kênh đích</h2>
-        <div style="margin-bottom:0.5rem">
-          <button class="secondary" onclick="selectAllCh(true)">Chọn tất cả</button>
-          <button class="secondary" onclick="selectAllCh(false)">Bỏ chọn</button>
-        </div>
+        <label><input type="checkbox" id="all-after" checked /> Chạy sau các lượt thường</label>
+        <h2 style="margin-top:1rem">Chọn kênh</h2>
+        <button class="secondary" onclick="selectAllCh(true)">Chọn tất cả</button>
+        <button class="secondary" onclick="selectAllCh(false)">Bỏ chọn</button>
         <div class="ch-list" id="all-channels"></div>
         <button class="primary" style="margin-top:1rem" onclick="saveAllTask()">Lưu /all task</button>
       </div>
     </section>
 
+    <section id="schedule" class="panel">
+      <div class="card">
+        <h2>Lịch auto hằng ngày</h2>
+        <p class="hint">Sau khi up xong tất cả topic + /all task, tool chờ đến giờ bạn set rồi tự chạy lại.</p>
+        <label><input type="checkbox" id="sch-enabled" /> Bật lịch auto</label>
+        <label>Múi giờ</label>
+        <select id="sch-tz">
+          <option value="Asia/Ho_Chi_Minh">Asia/Ho_Chi_Minh (VN)</option>
+          <option value="Asia/Bangkok">Asia/Bangkok</option>
+          <option value="UTC">UTC</option>
+        </select>
+        <label>Giờ chạy (HH:MM)</label>
+        <div id="sch-times"></div>
+        <button class="secondary" onclick="addTime()">+ Thêm giờ</button>
+        <div style="margin-top:0.75rem">
+          <label><input type="checkbox" id="sch-topics" checked /> Chạy tất cả topic nguồn đã bật</label>
+          <label><input type="checkbox" id="sch-all" checked /> Chạy /all task sau cùng</label>
+        </div>
+        <button class="primary" style="margin-top:1rem" onclick="saveSchedule()">Lưu lịch</button>
+        <p class="hint" id="sch-next-hint"></p>
+      </div>
+    </section>
+
+    <section id="telegram" class="panel">
+      <div class="card">
+        <h2>Telegram userbot (cấu hình trên web)</h2>
+        <p class="hint">Không cần .env cho các mục dưới. Chỉ cần session Pyrogram lần đầu.</p>
+        <div class="row">
+          <div><label>API ID</label><input id="tg-api-id" type="number" /></div>
+          <div><label>API Hash</label><input id="tg-api-hash" type="password" placeholder="để trống = giữ cũ" /></div>
+        </div>
+        <div class="row">
+          <div><label>Intermediate chat (lệnh bot)</label><input id="tg-inter" type="number" /></div>
+          <div><label>Ads chat</label><input id="tg-ads" type="number" /></div>
+        </div>
+        <button class="primary" onclick="saveTelegram()">Lưu Telegram</button>
+      </div>
+      <div class="card">
+        <h2>Bot thông báo trạng thái</h2>
+        <p class="hint">Bot gửi: hết bài, kho thấp, xong lượt, lỗi... vào chat/group bạn chọn.</p>
+        <label>Bot Token</label>
+        <input id="tg-bot-token" type="password" placeholder="123456:ABC... (để trống = giữ cũ)" />
+        <label>Chat ID nhận thông báo</label>
+        <input id="tg-notify" type="number" placeholder="-100..." />
+        <button class="primary" onclick="saveTelegram()">Lưu bot</button>
+      </div>
+    </section>
+
     <section id="global" class="panel">
       <div class="card">
-        <h2>xepbai OFF — mặc định</h2>
+        <h2>xepbai & web</h2>
         <div class="row">
-          <div><label>Content / ads (/doneN)</label><input id="g-cpa" type="number" /></div>
-          <div><label>Mode xếp</label>
-            <select id="g-mode">
-              <option value="normal">normal</option>
-              <option value="xdone">xdone</option>
-              <option value="zdone">zdone</option>
-            </select>
-          </div>
-          <div><label>Cảnh báo kho &lt;= media</label><input id="g-threshold" type="number" /></div>
+          <div><label>Content/ads</label><input id="g-cpa" type="number" /></div>
+          <div><label>Mode</label><select id="g-mode"><option value="normal">normal</option><option value="xdone">xdone</option><option value="zdone">zdone</option></select></div>
+          <div><label>Cảnh báo kho ≤</label><input id="g-threshold" type="number" /></div>
+          <div><label>Web port</label><input id="g-port" type="number" /></div>
         </div>
-        <label><input type="checkbox" id="g-auto" /> Tự chạy khi detect topic đã map nguồn</label>
+        <label>Web token (bảo vệ dashboard)</label>
+        <input id="g-web-token" type="password" placeholder="để trống = không khóa" />
+        <label><input type="checkbox" id="g-auto" /> Tự chạy khi detect topic đã map</label>
         <button class="primary" onclick="saveGlobal()">Lưu cài đặt</button>
       </div>
     </section>
   </main>
-
   <div class="toast" id="toast"></div>
 
   <script>
     const $ = id => document.getElementById(id);
+    let channelCache = [];
+    let scheduleTimes = ["08:00", "20:00"];
+    let es = null;
 
     function headers() {
       const t = $("token").value.trim();
@@ -232,6 +214,11 @@
       el.textContent = msg;
       el.style.display = "block";
       setTimeout(() => el.style.display = "none", 2500);
+    }
+
+    function fmtTs(ts) {
+      if (!ts) return "—";
+      return new Date(ts * 1000).toLocaleString("vi-VN");
     }
 
     document.querySelectorAll(".tabs button").forEach(btn => {
@@ -249,131 +236,217 @@
       return r.json();
     }
 
-    async function loadInventory() {
-      const inv = await api("/inventory");
+    function renderInventory(inv) {
       const topics = inv.topics || {};
       const keys = Object.keys(topics);
       if (!keys.length) {
         $("inventory-table").innerHTML = "<p style='color:var(--muted)'>Chưa có dữ liệu kho.</p>";
         return;
       }
+      const threshold = 50;
       let html = "<table><tr><th>Topic</th><th>Còn media</th><th>Còn bài</th><th>Batch cuối</th></tr>";
       for (const k of keys) {
         const t = topics[k];
-        const low = t.remaining_media <= 50;
-        html += `<tr>
-          <td><code>${k}</code></td>
+        const low = (t.remaining_media ?? 0) <= threshold;
+        html += `<tr><td><code>${k}</code></td>
           <td><span class="badge ${low ? "warn" : "ok"}">${t.remaining_media ?? 0}</span></td>
           <td>${t.remaining_posts ?? 0}</td>
-          <td>${t.last_batch_media ?? 0} media / ${t.last_batch_posts ?? 0} bài</td>
-        </tr>`;
+          <td>${t.last_batch_media ?? 0}m / ${t.last_batch_posts ?? 0}b</td></tr>`;
       }
       html += "</table>";
       $("inventory-table").innerHTML = html;
     }
 
-    async function loadTopics() {
-      const list = await api("/topics");
+    function renderTopics(list) {
       if (!list.length) {
-        $("topics-list").innerHTML = "<p style='color:var(--muted)'>Chưa có topic nào.</p>";
+        $("topics-list").innerHTML = "<p style='color:var(--muted)'>Chưa có topic.</p>";
         return;
       }
       $("topics-list").innerHTML = list.map(t => `
         <div style="padding:0.75rem 0;border-bottom:1px solid var(--border)">
           <strong>${t.topic_title || t.topic_id}</strong>
-          <span class="badge">${t.src_chat_id}:${t.topic_id}</span>
+          <span class="badge ${t.enabled !== false ? "ok" : "warn"}">${t.src_chat_id}:${t.topic_id}</span>
           <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem">
-            media=${t.target_media_override || "pin"} · ads=${t.target_ads_override || "pin"} ·
-            RR=${t.media_per_round || "-"} · cmds=${(t.mapped_cmds || []).join(",")}
-            · no-ads=${(t.channels_no_ads || []).join(",")}
+            media=${t.target_media_override || "pin"} · ads=${t.target_ads_override || "pin"} · cmds=${(t.mapped_cmds||[]).join(",")}
           </div>
         </div>`).join("");
     }
 
-    async function saveTopic() {
-      const body = {
-        src_chat_id: +$("t-src").value,
-        topic_id: +$("t-topic").value,
-        topic_title: $("t-title").value.trim(),
-        target_media_override: +$("t-media").value || null,
-        target_ads_override: +$("t-ads").value || null,
-        media_per_round: +$("t-round").value || null,
-        default_cpa: +$("t-cpa").value || null,
-        mapped_cmds: $("t-cmds").value.split(",").map(s => s.trim()).filter(Boolean),
-        channels_no_ads: $("t-no-ads").value.split(",").map(s => s.trim()).filter(Boolean),
-        enabled: true,
-      };
-      await api("/topics", { method: "POST", body: JSON.stringify(body) });
-      toast("Đã lưu topic");
-      loadTopics();
-      loadInventory();
+    function renderRuntime(rt) {
+      const st = rt.status || "idle";
+      $("st-status").innerHTML = st === "running"
+        ? `<span class="badge run">Đang chạy</span>`
+        : `<span class="badge ok">Rảnh</span>`;
+      $("st-task").textContent = rt.current_task || "—";
+      $("st-last").textContent = fmtTs(rt.last_run_at);
+      $("st-next").textContent = fmtTs(rt.next_run_at);
+      const log = (rt.log || []).slice().reverse();
+      $("activity-log").innerHTML = log.length
+        ? log.map(l => `<div class="log-line ${l.level}">[${fmtTs(l.ts)}] ${l.message}</div>`).join("")
+        : "<p style='color:var(--muted)'>Chưa có log.</p>";
     }
 
-    let channelCache = [];
-
-    async function loadChannels() {
-      channelCache = await api("/channels");
-      const task = await api("/all-task");
+    function renderChannels(channels, task) {
+      channelCache = channels;
       const sel = new Set((task.selected_channel_ids || []).map(String));
       $("all-enabled").checked = !!task.enabled;
       $("all-src").value = task.source_chat_id || "";
       $("all-topic").value = task.source_topic_id || "";
       $("all-after").checked = task.run_after_regular !== false;
-      $("all-channels").innerHTML = channelCache.map((c, i) => `
+      $("all-channels").innerHTML = channels.map((c, i) => `
         <label class="ch-item">
           <input type="checkbox" class="all-ch" value="${c.id}" ${sel.has(String(c.id)) ? "checked" : ""} />
-          <span>${i + 1}. ${c.title} <span class="badge">${c.id}</span></span>
-        </label>`).join("") || "<p>Chưa có kênh — dùng /add trên bot.</p>";
+          <span>${i+1}. ${c.title} <span class="badge">${c.id}</span></span>
+        </label>`).join("") || "<p>Chưa có kênh.</p>";
     }
 
-    function selectAllCh(on) {
-      document.querySelectorAll(".all-ch").forEach(el => el.checked = on);
+    function renderGlobal(g) {
+      $("g-cpa").value = g.xepbai_off_default_cpa ?? 1;
+      $("g-mode").value = g.xepbai_off_default_mode || "normal";
+      $("g-threshold").value = g.low_media_warn_threshold ?? 50;
+      $("g-auto").checked = !!g.auto_run_enabled;
+      $("g-port").value = g.web_port ?? 8080;
+      $("tg-api-id").value = g.api_id || "";
+      $("tg-inter").value = g.intermediate_chat || "";
+      $("tg-ads").value = g.ads_chat || "";
+      $("tg-notify").value = g.notify_chat_id || "";
+      const sch = g.schedule || {};
+      $("sch-enabled").checked = !!sch.enabled;
+      $("sch-tz").value = sch.timezone || "Asia/Ho_Chi_Minh";
+      $("sch-topics").checked = sch.run_all_topics !== false;
+      $("sch-all").checked = sch.run_all_task_after !== false;
+      scheduleTimes = (sch.times && sch.times.length) ? [...sch.times] : ["08:00", "20:00"];
+      renderTimeChips();
+      $("sch-next-hint").textContent = sch.enabled
+        ? "Lịch đang bật — xem lần chạy tiếp trên Dashboard"
+        : "Lịch đang tắt.";
     }
+
+    function renderTimeChips() {
+      $("sch-times").innerHTML = scheduleTimes.map((t, i) => `
+        <span class="time-chip">
+          <input type="time" value="${t}" style="width:auto;margin:0" onchange="scheduleTimes[${i}]=this.value" />
+          <button class="secondary" style="padding:0.2rem 0.4rem" onclick="removeTime(${i})">×</button>
+        </span>`).join("");
+    }
+
+    function addTime() { scheduleTimes.push("12:00"); renderTimeChips(); }
+    function removeTime(i) { scheduleTimes.splice(i, 1); renderTimeChips(); }
+
+    function applySnapshot(snap) {
+      renderRuntime(snap.runtime);
+      renderInventory(snap.inventory);
+      renderTopics(Object.values(snap.config.topic_sources || {}));
+      renderChannels(snap.channels || channelCache, snap.config.all_task || {});
+      renderGlobal(snap.config.global || {});
+      if (snap.runtime && snap.runtime.next_run_at) {
+        $("sch-next-hint").textContent = `Lần chạy tiếp: ${fmtTs(snap.runtime.next_run_at)}`;
+      }
+    }
+
+    function connectStream() {
+      if (es) es.close();
+      const t = $("token").value.trim();
+      const url = "/api/stream" + (t ? "?token=" + encodeURIComponent(t) : "");
+      es = new EventSource(url, { withCredentials: false });
+      es.onopen = () => { $("live-label").textContent = "Real-time"; $("live-dot").style.background = "var(--accent2)"; };
+      es.onmessage = ev => {
+        try {
+          const snap = JSON.parse(ev.data);
+          snap.channels = snap.channels || channelCache;
+          applySnapshot(snap);
+        } catch (_) {}
+      };
+      es.onerror = () => {
+        $("live-label").textContent = "Mất kết nối — thử lại...";
+        $("live-dot").style.background = "var(--danger)";
+        es.close();
+        setTimeout(connectStream, 3000);
+      };
+    }
+
+    async function saveTopic() {
+      await api("/topics", { method: "POST", body: JSON.stringify({
+        src_chat_id: +$("t-src").value, topic_id: +$("t-topic").value,
+        topic_title: $("t-title").value.trim(),
+        target_media_override: +$("t-media").value || null,
+        target_ads_override: +$("t-ads").value || null,
+        media_per_round: +$("t-round").value || null,
+        default_cpa: +$("t-cpa").value || null,
+        mapped_cmds: $("t-cmds").value.split(",").map(s=>s.trim()).filter(Boolean),
+        channels_no_ads: $("t-no-ads").value.split(",").map(s=>s.trim()).filter(Boolean),
+        enabled: true,
+      })});
+      toast("Đã lưu topic");
+    }
+
+    function selectAllCh(on) { document.querySelectorAll(".all-ch").forEach(el => el.checked = on); }
 
     async function saveAllTask() {
       const ids = [...document.querySelectorAll(".all-ch:checked")].map(el => +el.value);
-      const body = {
+      await api("/all-task", { method: "POST", body: JSON.stringify({
         enabled: $("all-enabled").checked,
         source_chat_id: +$("all-src").value || null,
         source_topic_id: +$("all-topic").value || null,
         selected_channel_ids: ids,
         run_after_regular: $("all-after").checked,
-      };
-      await api("/all-task", { method: "POST", body: JSON.stringify(body) });
-      toast(`Đã lưu /all task — ${ids.length} kênh`);
+      })});
+      toast(`Đã lưu /all — ${ids.length} kênh`);
     }
 
-    async function loadGlobal() {
-      const cfg = await api("/config");
-      const g = cfg.global || {};
-      $("g-cpa").value = g.xepbai_off_default_cpa ?? 1;
-      $("g-mode").value = g.xepbai_off_default_mode || "normal";
-      $("g-threshold").value = g.low_media_warn_threshold ?? 50;
-      $("g-auto").checked = !!g.auto_run_enabled;
+    async function saveSchedule() {
+      const r = await api("/schedule", { method: "PATCH", body: JSON.stringify({
+        enabled: $("sch-enabled").checked,
+        times: scheduleTimes.filter(Boolean),
+        timezone: $("sch-tz").value,
+        run_all_topics: $("sch-topics").checked,
+        run_all_task_after: $("sch-all").checked,
+      })});
+      toast("Đã lưu lịch");
+      $("sch-next-hint").textContent = `Lần chạy tiếp: ${fmtTs(r.next_run_at)}`;
+    }
+
+    async function saveTelegram() {
+      const body = {
+        api_id: +$("tg-api-id").value || null,
+        intermediate_chat: +$("tg-inter").value || null,
+        ads_chat: +$("tg-ads").value || null,
+        notify_chat_id: +$("tg-notify").value || null,
+      };
+      const hash = $("tg-api-hash").value.trim();
+      const bot = $("tg-bot-token").value.trim();
+      if (hash) body.api_hash = hash;
+      if (bot) body.bot_token = bot;
+      await api("/telegram", { method: "PATCH", body: JSON.stringify(body) });
+      toast("Đã lưu Telegram/Bot");
     }
 
     async function saveGlobal() {
-      await api("/global", {
-        method: "PATCH",
-        body: JSON.stringify({
-          xepbai_off_default_cpa: +$("g-cpa").value || 1,
-          xepbai_off_default_mode: $("g-mode").value,
-          low_media_warn_threshold: +$("g-threshold").value || 50,
-          auto_run_enabled: $("g-auto").checked,
-        }),
-      });
+      const wt = $("g-web-token").value.trim();
+      const body = {
+        xepbai_off_default_cpa: +$("g-cpa").value || 1,
+        xepbai_off_default_mode: $("g-mode").value,
+        low_media_warn_threshold: +$("g-threshold").value || 50,
+        auto_run_enabled: $("g-auto").checked,
+        web_port: +$("g-port").value || 8080,
+      };
+      if (wt) body.web_token = wt;
+      await api("/global", { method: "PATCH", body: JSON.stringify(body) });
       toast("Đã lưu cài đặt");
     }
 
     async function init() {
       try {
-        await Promise.all([loadInventory(), loadTopics(), loadChannels(), loadGlobal()]);
+        channelCache = await api("/channels");
+        connectStream();
       } catch (e) {
         toast("Lỗi: " + e.message);
+        setTimeout(init, 3000);
       }
     }
+
+    $("token").addEventListener("change", connectStream);
     init();
-    setInterval(loadInventory, 30000);
   </script>
 </body>
 </html>

@@ -1,0 +1,104 @@
+"""Runtime state + activity log — web đọc real-time qua SSE."""
+
+import os
+import threading
+import time
+from copy import deepcopy
+from typing import Any
+
+from core.config_store import DATA_DIR
+
+RUNTIME_FILE = os.path.join(DATA_DIR, "runtime.json")
+_lock = threading.Lock()
+_MAX_LOG = 200
+
+DEFAULT_RUNTIME: dict[str, Any] = {
+    "status": "idle",
+    "current_task": "",
+    "last_run_at": 0,
+    "next_run_at": 0,
+    "last_run_result": "",
+    "updated_at": 0,
+    "log": [],
+}
+
+
+def _read() -> dict:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if not os.path.exists(RUNTIME_FILE):
+        return deepcopy(DEFAULT_RUNTIME)
+    try:
+        import json
+
+        with open(RUNTIME_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            data.setdefault("log", [])
+            return data
+    except Exception:
+        pass
+    return deepcopy(DEFAULT_RUNTIME)
+
+
+def _write(data: dict) -> None:
+    import json
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    data["updated_at"] = int(time.time())
+    with open(RUNTIME_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def get_runtime() -> dict:
+    with _lock:
+        return _read()
+
+
+def set_status(
+    status: str,
+    current_task: str = "",
+    *,
+    last_run_result: str | None = None,
+    next_run_at: int | None = None,
+) -> dict:
+    with _lock:
+        rt = _read()
+        rt["status"] = status
+        if current_task is not None:
+            rt["current_task"] = current_task
+        if last_run_result is not None:
+            rt["last_run_result"] = last_run_result
+        if next_run_at is not None:
+            rt["next_run_at"] = next_run_at
+        _write(rt)
+        return rt
+
+
+def append_log(level: str, message: str) -> None:
+    with _lock:
+        rt = _read()
+        rt.setdefault("log", []).append({
+            "ts": int(time.time()),
+            "level": level,
+            "message": message,
+        })
+        rt["log"] = rt["log"][-_MAX_LOG:]
+        _write(rt)
+
+
+def mark_run_start(task: str = "") -> None:
+    with _lock:
+        rt = _read()
+        rt["status"] = "running"
+        rt["current_task"] = task
+        rt["last_run_at"] = int(time.time())
+        _write(rt)
+
+
+def mark_run_done(result: str = "ok") -> None:
+    with _lock:
+        rt = _read()
+        rt["status"] = "idle"
+        rt["current_task"] = ""
+        rt["last_run_result"] = result
+        _write(rt)

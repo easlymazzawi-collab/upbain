@@ -1,12 +1,14 @@
-"""FastAPI web dashboard for topic sources, inventory, /all task."""
+"""FastAPI web dashboard — cấu hình, SSE real-time, bot token, lịch auto."""
 
+import asyncio
+import json
 import os
+import time
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse, StreamingResponse
+from pydantic import BaseModel, Field
 
 from core.config_store import (
     load_auto_config,
@@ -15,20 +17,31 @@ from core.config_store import (
     topic_key,
     upsert_topic_source,
 )
+from core.runtime import get_runtime
+from core.scheduler import compute_next_run_ts
+from core.settings import CHANNELS_FILE, web_token
 
 WEB_DIR = os.path.join(os.path.dirname(__file__), "static")
 
-app = FastAPI(title="UpBain Control", version="26")
+app = FastAPI(title="UpBain Control", version="27")
+
+
+def _check_token(authorization: str | None, x_token: str | None, query_token: str | None = None):
+    token = web_token()
+    if not token:
+        return True
+    got = (
+        (authorization or "").replace("Bearer ", "").strip()
+        or (x_token or "").strip()
+        or (query_token or "").strip()
+    )
+    if got != token:
+        raise HTTPException(401, "Unauthorized")
+    return True
 
 
 def _auth(authorization: str | None = Header(default=None), x_token: str | None = Header(default=None)):
-    cfg = load_auto_config()
-    token = cfg.get("global", {}).get("web_token") or os.getenv("WEB_TOKEN", "")
-    if not token:
-        return True
-    got = (authorization or "").replace("Bearer ", "").strip() or (x_token or "").strip()
-    if got != token:
-        raise HTTPException(401, "Unauthorized")
+    _check_token(authorization, x_token)
     return True
 
 
@@ -55,11 +68,56 @@ class AllTaskIn(BaseModel):
     run_after_regular: bool = True
 
 
+class ScheduleIn(BaseModel):
+    enabled: bool = False
+    times: list[str] = Field(default_factory=lambda: ["08:00", "20:00"])
+    timezone: str = "Asia/Ho_Chi_Minh"
+    run_all_topics: bool = True
+    run_all_task_after: bool = True
+
+
 class GlobalIn(BaseModel):
     xepbai_off_default_cpa: int = 1
     xepbai_off_default_mode: str = "normal"
     low_media_warn_threshold: int = 50
     auto_run_enabled: bool = True
+    web_host: str = "0.0.0.0"
+    web_port: int = 8080
+    web_token: str = ""
+
+
+class TelegramIn(BaseModel):
+    api_id: int | None = None
+    api_hash: str = ""
+    intermediate_chat: int | None = None
+    ads_chat: int | None = None
+    bot_token: str = ""
+    notify_chat_id: int | None = None
+
+
+def _snapshot() -> dict[str, Any]:
+    cfg = load_auto_config()
+    sch = cfg.get("global", {}).get("schedule") or {}
+    rt = get_runtime()
+    next_ts = compute_next_run_ts(
+        sch.get("times") or [],
+        sch.get("timezone") or "Asia/Ho_Chi_Minh",
+    ) if sch.get("enabled") else 0
+    g = cfg.get("global", {})
+    safe_global = {k: v for k, v in g.items() if k not in ("api_hash", "bot_token")}
+    safe_global["has_api_hash"] = bool(g.get("api_hash"))
+    safe_global["has_bot_token"] = bool(g.get("bot_token"))
+    channels = []
+    if os.path.exists(CHANNELS_FILE):
+        with open(CHANNELS_FILE, "r", encoding="utf-8") as f:
+            channels = json.load(f)
+    return {
+        "config": {**cfg, "global": safe_global},
+        "inventory": load_inventory(),
+        "runtime": {**rt, "next_run_at": next_ts or rt.get("next_run_at", 0)},
+        "channels": channels,
+        "ts": int(time.time()),
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -69,9 +127,45 @@ async def index():
         return f.read()
 
 
+@app.get("/api/stream")
+async def api_stream(
+    request: Request,
+    token: str | None = None,
+    authorization: str | None = Header(default=None),
+    x_token: str | None = Header(default=None),
+):
+    _check_token(authorization, x_token, token)
+    """SSE — push snapshot mỗi 2s + khi file thay đổi."""
+
+    async def gen():
+        last_sig = ""
+        while True:
+            if await request.is_disconnected():
+                break
+            snap = _snapshot()
+            sig = json.dumps(snap, sort_keys=True, default=str)
+            if sig != last_sig:
+                last_sig = sig
+                yield f"data: {sig}\n\n"
+            else:
+                yield ": keepalive\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/api/config")
 async def api_config(_=Depends(_auth)):
-    return load_auto_config()
+    return _snapshot()["config"]
+
+
+@app.get("/api/status")
+async def api_status(_=Depends(_auth)):
+    return _snapshot()["runtime"]
 
 
 @app.patch("/api/global")
@@ -80,6 +174,48 @@ async def patch_global(body: GlobalIn, _=Depends(_auth)):
     cfg["global"].update(body.model_dump())
     save_auto_config(cfg)
     return cfg["global"]
+
+
+@app.patch("/api/telegram")
+async def patch_telegram(body: TelegramIn, _=Depends(_auth)):
+    cfg = load_auto_config()
+    g = cfg["global"]
+    if body.api_id is not None:
+        g["api_id"] = body.api_id
+    if body.api_hash:
+        g["api_hash"] = body.api_hash
+    if body.intermediate_chat is not None:
+        g["intermediate_chat"] = body.intermediate_chat
+    if body.ads_chat is not None:
+        g["ads_chat"] = body.ads_chat
+    if body.bot_token:
+        g["bot_token"] = body.bot_token
+    if body.notify_chat_id is not None:
+        g["notify_chat_id"] = body.notify_chat_id
+    save_auto_config(cfg)
+    return {
+        "api_id": g.get("api_id"),
+        "intermediate_chat": g.get("intermediate_chat"),
+        "ads_chat": g.get("ads_chat"),
+        "notify_chat_id": g.get("notify_chat_id"),
+        "has_api_hash": bool(g.get("api_hash")),
+        "has_bot_token": bool(g.get("bot_token")),
+    }
+
+
+@app.get("/api/schedule")
+async def get_schedule(_=Depends(_auth)):
+    return load_auto_config().get("global", {}).get("schedule", {})
+
+
+@app.patch("/api/schedule")
+async def patch_schedule(body: ScheduleIn, _=Depends(_auth)):
+    cfg = load_auto_config()
+    cfg["global"]["schedule"] = body.model_dump()
+    save_auto_config(cfg)
+    sch = cfg["global"]["schedule"]
+    next_ts = compute_next_run_ts(sch.get("times") or [], sch.get("timezone") or "Asia/Ho_Chi_Minh")
+    return {**sch, "next_run_at": next_ts}
 
 
 @app.get("/api/inventory")
@@ -123,31 +259,19 @@ async def post_all_task(body: AllTaskIn, _=Depends(_auth)):
 
 @app.get("/api/channels")
 async def api_channels(_=Depends(_auth)):
-    import json
-    path = os.getenv("CHANNELS_FILE", "channels.json")
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
+    if os.path.exists(CHANNELS_FILE):
+        with open(CHANNELS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return []
 
 
-@app.post("/api/channels/all-select")
-async def save_all_channels(body: dict[str, Any], _=Depends(_auth)):
-    ids = body.get("selected_channel_ids", [])
-    cfg = load_auto_config()
-    cfg.setdefault("all_task", {})["selected_channel_ids"] = ids
-    save_auto_config(cfg)
-    return cfg["all_task"]
-
-
 @app.post("/api/trigger/{src_chat_id}/{topic_id}")
 async def api_trigger(src_chat_id: int, topic_id: int, _=Depends(_auth)):
-    """Queue trigger — client gọi /runtopic trên bot; endpoint lưu intent."""
     cfg = load_auto_config()
     cfg.setdefault("pending_triggers", []).append({
         "src_chat_id": src_chat_id,
         "topic_id": topic_id,
-        "ts": __import__("time").time(),
+        "ts": time.time(),
     })
     save_auto_config(cfg)
-    return {"ok": True, "message": "Gõ /runtopic trên bot hoặc bật auto_run"}
+    return {"ok": True, "message": "Đã queue — tool sẽ chạy nếu auto_run bật"}

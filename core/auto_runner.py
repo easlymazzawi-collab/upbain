@@ -6,6 +6,7 @@ from typing import Any, Callable, Awaitable
 from core.config_store import get_topic_source, load_auto_config, topic_key, upsert_topic_source
 from core.inventory import update_after_batch
 from core.pin_manager import advance_topic_pin
+from core.settings import CHANNELS_FILE
 from core.source_collector import collect_batch_from_topic, posts_to_content_refs
 
 log = logging.getLogger("auto_runner")
@@ -136,8 +137,9 @@ async def run_all_task(
         await notify("⚠️ /all task: chưa cấu hình nguồn hoặc kênh trên web.")
         return False
 
-    import json, os
-    path = os.getenv("CHANNELS_FILE", "channels.json")
+    import json
+    import os
+    path = CHANNELS_FILE
     channels = []
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:

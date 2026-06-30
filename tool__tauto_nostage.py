@@ -52,10 +52,39 @@ from pyrogram.errors import (
 
 load_dotenv()
 
-API_ID            = int(os.getenv("API_ID"))
-API_HASH          = os.getenv("API_HASH")
-INTERMEDIATE_CHAT = int(os.getenv("INTERMEDIATE_CHAT"))
-ADS_CHAT          = int(os.getenv("ADS_CHAT"))
+from core.settings import (
+    ads_chat_id as _ads_chat_id,
+    api_hash as _api_hash,
+    api_id as _api_id,
+    intermediate_chat_id as _intermediate_chat_id,
+    web_port as _web_port,
+)
+
+def _require_api():
+    aid, ahash = _api_id(), _api_hash()
+    if not aid or not ahash:
+        raise SystemExit(
+            "❌ Chưa có api_id/api_hash — cấu hình tab Telegram trên web hoặc .env"
+        )
+    return int(aid), str(ahash)
+
+API_ID, API_HASH = _require_api()
+
+
+def get_intermediate_chat() -> int:
+    cid = _intermediate_chat_id()
+    if cid is None:
+        raise RuntimeError("intermediate_chat chưa cấu hình trên web")
+    return cid
+
+
+def get_ads_chat() -> int:
+    cid = _ads_chat_id()
+    if cid is None:
+        raise RuntimeError("ads_chat chưa cấu hình trên web")
+    return cid
+
+
 SAVED_MESSAGES    = "me"
 CHANNELS_FILE     = "channels.json"
 FOLDERS_FILE      = "folders.json"
@@ -266,8 +295,8 @@ async def _im_spacing():
 async def robust_send(text, chat_id=None,
                       max_retries=IM_SEND_MAX_RETRY,
                       max_wait=IM_SEND_MAX_WAIT):
-    target   = INTERMEDIATE_CHAT if chat_id is None else chat_id
-    use_lock = (target == INTERMEDIATE_CHAT)
+    target   = get_intermediate_chat() if chat_id is None else chat_id
+    use_lock = (target == get_intermediate_chat())
 
     async def _do():
         for attempt in range(max_retries):
@@ -293,7 +322,7 @@ async def robust_send(text, chat_id=None,
 async def robust_edit(chat_id, msg_id, text,
                       max_retries=IM_SEND_MAX_RETRY,
                       max_wait=IM_SEND_MAX_WAIT):
-    use_lock = (chat_id == INTERMEDIATE_CHAT)
+    use_lock = (chat_id == get_intermediate_chat())
 
     async def _do():
         for attempt in range(max_retries):
@@ -833,7 +862,7 @@ def record_failed(target_id, target_title, items):
 
 async def load_ads_into(slot):
     ads     = []
-    chat_id = slot.get("ads_chat_id") or ADS_CHAT
+    chat_id = slot.get("ads_chat_id") or get_ads_chat()
     try:
         async for msg in app.get_chat_history(chat_id, limit=200):
             if not msg.empty and not msg.service:
@@ -1045,7 +1074,7 @@ async def update_menu(slot, n, gen=None):
 
     text = get_menu(n, slot=slot)
     if slot.get("menu_msg_id"):
-        ok = await robust_edit(INTERMEDIATE_CHAT, slot["menu_msg_id"], text)
+        ok = await robust_edit(get_intermediate_chat(), slot["menu_msg_id"], text)
         if ok:
             return
         slot["menu_msg_id"] = None
@@ -1210,7 +1239,7 @@ async def build_sequence(content_per_ads=1, mode="normal"):
 async def build_sequence_for_slot(slot, content_per_ads=1, mode="normal"):
     contents     = slot["content_msgs"]
     n            = slot.get("_batch_n") or len(contents)
-    ads_chat     = slot["ads_chat_id"] or ADS_CHAT
+    ads_chat     = slot["ads_chat_id"] or get_ads_chat()
     content_chat = slot.get("content_chat") or SAVED_MESSAGES
     skip_ads     = slot.get("skip_ads", False)
     src_id       = slot.get("topic_src_id")
@@ -1694,7 +1723,7 @@ async def cmd_checkchan(auto_clean: bool = False, silent: bool = False):
             log("CHECK", f"? UNKNOWN {ch.get('title','?')} → {payload} — GIỮ LẠI")
         if not silent and status_msg and ((i + 1) % 5 == 0 or i == total - 1):
             await robust_edit(
-                INTERMEDIATE_CHAT, status_msg.id,
+                get_intermediate_chat(), status_msg.id,
                 f"🔍 Đang check... ({i+1}/{total})\n"
                 f"✅ {len(alive)}   ❌ {len(dead)}   ❓ {len(unknown)}"
             )
@@ -1738,7 +1767,7 @@ async def cmd_checkchan(auto_clean: bool = False, silent: bool = False):
         lines += ["━━━━━━━━━━━━━━━", "🎉 Tất cả kênh đều hoạt động!"]
     final = "\n".join(lines)
     if status_msg:
-        ok = await robust_edit(INTERMEDIATE_CHAT, status_msg.id, final)
+        ok = await robust_edit(get_intermediate_chat(), status_msg.id, final)
         if not ok:
             await robust_send(final)
     else:
@@ -1861,8 +1890,8 @@ async def handler(client, msg: Message):
                 return
 
         # Phát hiện ads forward nhầm vào Saved
-        if msg.forward_from_chat and msg.forward_from_chat.id == ADS_CHAT:
-            slot["ads_chat_id"] = ADS_CHAT
+        if msg.forward_from_chat and msg.forward_from_chat.id == get_ads_chat():
+            slot["ads_chat_id"] = get_ads_chat()
             await load_ads_into(slot)
             return
 
@@ -1959,8 +1988,12 @@ async def handler(client, msg: Message):
         schedule_update_menu(len(slot["content_msgs"]))
         return
 
-    # ══ 2. Lệnh trong INTERMEDIATE_CHAT ══════════════════════════════
-    if msg.chat.id != INTERMEDIATE_CHAT:
+    # ══ 2. Lệnh trong intermediate chat ══════════════════════════════
+    try:
+        im_chat = get_intermediate_chat()
+    except RuntimeError:
+        return
+    if msg.chat.id != im_chat:
         return
 
     text_raw = (msg.text or "")
@@ -2256,15 +2289,15 @@ async def handler(client, msg: Message):
 
     if text == "/help":
         await safe_send(
-            "📖 Hướng dẫn v26\n"
+            "📖 Hướng dẫn v27\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "🚀 Auto nguồn topic (v26):\n"
+            "🚀 Auto nguồn topic:\n"
             "  • Ghim bài kế tiếp cần up trong topic nguồn\n"
             "  • Caption ghim: 30 media 2 ads (hoặc cấu hình web)\n"
             "  • /runtopic — lấy từ topic → xếp → forward → ghim bài kế\n"
             "  • /scan <chat> <topic> — xem kho media còn lại\n"
             "  • /allrun — chạy /all task (web chọn kênh)\n"
-            "  • Web dashboard: cấu hình topic, no-ads, /all task\n"
+            "  • Web: bot thông báo, lịch auto hằng ngày, real-time\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "🚀 Flow Saved Messages (legacy):\n"
             "  1. Forward bài vào Saved Messages\n"
@@ -2315,6 +2348,9 @@ async def handler(client, msg: Message):
 
 from core.config_store import get_topic_source, load_auto_config, upsert_topic_source
 from core.auto_runner import run_topic_batch, run_all_task
+from core.bot_notify import send_bot_notify
+from core.runtime import append_log, mark_run_done, mark_run_start
+from core.scheduler import scheduler_loop
 from core.source_collector import collect_batch_from_topic
 from core.inventory import get_all_inventory
 
@@ -2340,7 +2376,14 @@ async def _source_build_and_forward(slot_data, channels, cmd):
 
 
 async def _notify(text):
-    await safe_send(text)
+    level = "error" if "❌" in text else ("warn" if ("⚠️" in text or "HẾT" in text or "📉" in text) else "info")
+    append_log(level, text)
+    sent = await send_bot_notify(text)
+    if not sent:
+        try:
+            await safe_send(text)
+        except Exception:
+            pass
 
 
 async def _try_auto_source_topic(src_id, topic_id, topic_title):
@@ -2379,6 +2422,42 @@ async def _forward_seq_all_channels(ch_id, seq):
     await forward_sequence_to_channel(ch_id, list(seq))
 
 
+async def _run_scheduled_cycle():
+    """Chạy tất cả topic nguồn + /all task theo lịch web."""
+    cfg = load_auto_config()
+    g = cfg.get("global", {})
+    sch = g.get("schedule") or {}
+
+    if not g.get("auto_run_enabled", True):
+        await _notify("⏸️ Lịch auto: auto_run đang tắt trên web.")
+        return
+
+    mark_run_start("Lịch auto hằng ngày")
+    await _notify("🕐 Bắt đầu lượt auto theo lịch")
+
+    topics = list(cfg.get("topic_sources", {}).values())
+    if sch.get("run_all_topics", True):
+        for t in topics:
+            if not t.get("enabled", True):
+                continue
+            sid, tid = t.get("src_chat_id"), t.get("topic_id")
+            title = t.get("topic_title") or ""
+            if sid is None or tid is None:
+                continue
+            mark_run_start(f"Topic {title or tid}")
+            await _try_auto_source_topic(sid, tid, title)
+
+    task = cfg.get("all_task", {})
+    if sch.get("run_all_task_after", True) and task.get("enabled"):
+        mark_run_start("/all task")
+        await run_all_task(
+            app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels
+        )
+
+    mark_run_done("ok")
+    await _notify("✅ Hoàn thành lượt auto theo lịch — chờ giờ chạy tiếp theo")
+
+
 async def cmd_scan_inventory(src_id: int, topic_id: int):
     cfg = load_auto_config()
     tcfg = get_topic_source(src_id, topic_id) or {"enabled": True}
@@ -2399,7 +2478,7 @@ def _start_web_server():
         from web.server import app as web_app
         cfg = load_auto_config()
         host = cfg.get("global", {}).get("web_host", "0.0.0.0")
-        port = int(cfg.get("global", {}).get("web_port", 8080))
+        port = _web_port()
 
         def _run():
             uvicorn.run(web_app, host=host, port=port, log_level="warning")
@@ -2415,7 +2494,14 @@ def _start_web_server():
 # ─────────────────────────────────────────────────────────
 
 async def main():
-    log("CONFIG", f"INTERMEDIATE={INTERMEDIATE_CHAT} | ADS_CHAT={ADS_CHAT}")
+    try:
+        im = get_intermediate_chat()
+        ads = get_ads_chat()
+    except RuntimeError as e:
+        log("WARN", f"{e} — cấu hình tab Telegram trên web rồi restart tool")
+        im = ads = None
+
+    log("CONFIG", f"INTERMEDIATE={im} | ADS_CHAT={ads}")
     ensure_topic_map_txt()
     await app.start()
 
@@ -2432,38 +2518,42 @@ async def main():
     except Exception as e:
         log("WARN", f"get_dialogs: {e}")
 
-    try:
-        await app.get_chat(INTERMEDIATE_CHAT)
-        log("START", "Resolved INTERMEDIATE_CHAT ✓")
-    except Exception as e:
-        log("ERROR", f"Không resolve được INTERMEDIATE_CHAT: {e}")
-        return
+    if im:
+        try:
+            await app.get_chat(im)
+            log("START", "Resolved intermediate_chat ✓")
+        except Exception as e:
+            log("ERROR", f"Không resolve được intermediate_chat: {e}")
+            return
 
-    try:
-        await app.get_chat(ADS_CHAT)
-        log("START", "Resolved ADS_CHAT ✓")
-    except Exception as e:
-        log("WARN", f"ADS_CHAT chưa cache: {e}")
+    if ads:
+        try:
+            await app.get_chat(ads)
+            log("START", "Resolved ads_chat ✓")
+        except Exception as e:
+            log("WARN", f"ads_chat chưa cache: {e}")
 
     await load_ads()
 
     n_folders  = len(load_folders())
     n_channels = len(load_channels())
-    web_port   = load_auto_config().get("global", {}).get("web_port", 8080)
+    web_port   = _web_port()
 
     asyncio.ensure_future(task_auto_sync_folders())
     asyncio.ensure_future(task_auto_clean_dead())
+    asyncio.ensure_future(scheduler_loop(_run_scheduled_cycle))
     _start_web_server()
 
-    await safe_send(
-        "🤖 Userbot v26 đã khởi động!\n"
+    await _notify(
+        "🤖 Userbot v27 đã khởi động!\n"
         f"📡 {n_channels} kênh • 📁 {n_folders} folder\n"
         f"🌐 Web: http://127.0.0.1:{web_port}\n"
-        "🔄 Auto nguồn topic (tin ghim) — /runtopic /scan /allrun\n"
+        "🔔 Thông báo qua bot token (cấu hình web)\n"
+        "⏰ Lịch auto hằng ngày — set giờ trên web\n"
         "Gõ /help để xem hướng dẫn."
     )
 
-    log("START", "📡 Đang lắng nghe + auto-tasks + web...")
+    log("START", "📡 Đang lắng nghe + lịch auto + web real-time...")
     await asyncio.Event().wait()
 
 app.run(main())

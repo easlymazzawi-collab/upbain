@@ -14,13 +14,26 @@ _lock = threading.Lock()
 
 DEFAULT_AUTO_CONFIG: dict[str, Any] = {
     "global": {
+        "api_id": None,
+        "api_hash": "",
+        "intermediate_chat": None,
+        "ads_chat": None,
+        "bot_token": "",
+        "notify_chat_id": None,
         "xepbai_off_default_cpa": 1,
         "xepbai_off_default_mode": "normal",
         "low_media_warn_threshold": 50,
         "web_host": "0.0.0.0",
-        "web_port": int(os.getenv("WEB_PORT", "8080")),
-        "web_token": os.getenv("WEB_TOKEN", ""),
+        "web_port": 8080,
+        "web_token": "",
         "auto_run_enabled": True,
+        "schedule": {
+            "enabled": False,
+            "times": ["08:00", "20:00"],
+            "timezone": "Asia/Ho_Chi_Minh",
+            "run_all_topics": True,
+            "run_all_task_after": True,
+        },
     },
     "topic_sources": {},
     "all_task": {
