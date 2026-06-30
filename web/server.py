@@ -18,6 +18,7 @@ from core.config_store import (
     upsert_topic_source,
 )
 from core.import_legacy import analyze_uploads, apply_import
+from core.all_config import merge_all_task, merge_plain_task
 from core.map_config import apply_start_link_flexible, apply_start_link_to_topic, clear_start_link, sync_topic_to_map_file
 from core.runtime import append_log, get_runtime
 from core.scheduler import compute_next_run_ts
@@ -68,6 +69,19 @@ class TopicSourceIn(BaseModel):
     start_link: str = ""
     start_msg_id: int | None = None
     cursor_msg_id: int | None = None
+
+
+class AllTaskPatchIn(BaseModel):
+    enabled: bool | None = None
+    source_link: str | None = None
+    start_link: str | None = None
+    selected_channel_ids: list[int] | None = None
+    run_after_regular: bool | None = None
+
+
+class PlainTaskPatchIn(BaseModel):
+    enabled: bool | None = None
+    selected_channel_ids: list[int] | None = None
 
 
 class AllTaskIn(BaseModel):
@@ -153,6 +167,7 @@ def _snapshot() -> dict[str, Any]:
         with open("folders.json", "r", encoding="utf-8") as f:
             folders = json.load(f)
     all_task = cfg.get("all_task") or {}
+    plain_task = cfg.get("plain_task") or {}
     return {
         "config": {**cfg, "global": safe_global},
         "inventory": load_inventory(),
@@ -173,8 +188,11 @@ def _snapshot() -> dict[str, Any]:
             "pending_actions": len(list_pending_actions()),
             "all_task_enabled": bool(all_task.get("enabled")),
             "all_task_configured": bool(
-                all_task.get("source_chat_id") and all_task.get("selected_channel_ids")
+                all_task.get("source_chat_id") and (
+                    all_task.get("selected_channel_ids") or plain_task.get("selected_channel_ids")
+                )
             ),
+            "plain_task_enabled": bool(plain_task.get("enabled")),
         },
         "ts": int(time.time()),
     }
@@ -385,20 +403,37 @@ async def get_all_task(_=Depends(_auth)):
     return load_auto_config().get("all_task", {})
 
 
+@app.patch("/api/all-task")
+async def patch_all_task(body: AllTaskPatchIn, _=Depends(_auth)):
+    patch = body.model_dump(exclude_none=True)
+    if "source_link" in patch and "start_link" not in patch:
+        patch["start_link"] = patch.pop("source_link")
+    elif "source_link" in patch:
+        patch["start_link"] = patch.get("source_link") or patch.get("start_link")
+        patch.pop("source_link", None)
+    data = merge_all_task(patch)
+    append_log("info", f"/all {'bật' if data.get('enabled') else 'tắt'} — {len(data.get('selected_channel_ids') or [])} kênh")
+    return data
+
+
 @app.post("/api/all-task")
 async def post_all_task(body: AllTaskIn, _=Depends(_auth)):
-    cfg = load_auto_config()
-    data = body.model_dump()
-    if data.get("start_link"):
-        from core.link_parser import parse_telegram_link
-        parsed = parse_telegram_link(data["start_link"])
-        if parsed and parsed.get("msg_id"):
-            data["start_msg_id"] = parsed["msg_id"]
-            data["cursor_msg_id"] = parsed["msg_id"]
-            data["pin_mode"] = "link"
-    cfg["all_task"] = data
-    save_auto_config(cfg)
-    return cfg["all_task"]
+    patch = body.model_dump()
+    if patch.get("start_link"):
+        patch["source_link"] = patch["start_link"]
+    return merge_all_task(patch)
+
+
+@app.get("/api/plain-task")
+async def get_plain_task(_=Depends(_auth)):
+    return load_auto_config().get("plain_task", {})
+
+
+@app.patch("/api/plain-task")
+async def patch_plain_task(body: PlainTaskPatchIn, _=Depends(_auth)):
+    data = merge_plain_task(body.model_dump(exclude_none=True))
+    append_log("info", f"Up bài {'bật' if data.get('enabled') else 'tắt'} — {len(data.get('selected_channel_ids') or [])} kênh")
+    return data
 
 
 @app.get("/api/channels")

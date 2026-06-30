@@ -172,7 +172,7 @@ def merge_topic_cmds(existing: dict, incoming: dict) -> dict:
 
 def merge_auto_config(existing: dict, incoming: dict) -> dict:
     out = deepcopy(existing)
-    for section in ("global", "all_task", "schedule"):
+    for section in ("global", "all_task", "plain_task", "schedule"):
         if section in incoming and isinstance(incoming[section], dict):
             if section == "global":
                 for k, v in incoming["global"].items():
@@ -181,6 +181,8 @@ def merge_auto_config(existing: dict, incoming: dict) -> dict:
                     out.setdefault("global", {})[k] = v
             elif section == "all_task":
                 out["all_task"] = {**out.get("all_task", {}), **incoming["all_task"]}
+            elif section == "plain_task":
+                out["plain_task"] = {**out.get("plain_task", {}), **incoming["plain_task"]}
             elif section == "schedule":
                 out.setdefault("global", {}).setdefault("schedule", {})
                 out["global"]["schedule"].update(incoming["schedule"])

@@ -92,7 +92,8 @@
     <div class="tabs">
       <button class="active" data-tab="dashboard">Điều khiển</button>
       <button data-tab="topics">Topic map</button>
-      <button data-tab="alltask">/all — Chat bài cuối</button>
+      <button data-tab="alltask">/all</button>
+      <button data-tab="plain">Up bài (không ads)</button>
       <button data-tab="channels">Kênh</button>
       <button data-tab="schedule">Lịch auto</button>
       <button data-tab="telegram">Telegram & Bot</button>
@@ -165,48 +166,50 @@
 
     <section id="alltask" class="panel">
       <div class="card">
-        <h2>/all — Up bài cuối lên nhiều kênh</h2>
-        <p class="hint">Chat/group <strong>chứa bài /all</strong>. Tool lấy bài từ topic này → forward lên kênh đã chọn (không ads).</p>
-        <label><input type="checkbox" id="all-enabled" /> Bật /all task</label>
-        <div class="row">
-          <div>
-            <label>Chat ID chứa bài /all</label>
-            <input id="all-src" type="number" placeholder="-1001234567890" />
-          </div>
-          <div>
-            <label>Topic ID trong chat</label>
-            <input id="all-topic" type="number" placeholder="12" />
-          </div>
-          <div>
-            <label>Tên ghi chú</label>
-            <input id="all-title" placeholder="kho /all" />
-          </div>
+        <h2>/all — Nhóm nguồn</h2>
+        <p class="hint">Dán link topic/group chứa bài → <strong>Lưu link</strong>. Nhóm trống → tool không up.</p>
+        <label class="toggle-row" style="display:flex;align-items:center;gap:0.75rem;margin:1rem 0">
+          <input type="checkbox" id="all-enabled" onchange="patchAll({enabled:this.checked})" />
+          <strong>Bật /all</strong>
+          <span class="badge" id="all-status">—</span>
+        </label>
+        <label>Link nguồn (topic/group)</label>
+        <input id="all-source-link" placeholder="https://t.me/c/1234567890/5/678" />
+        <div class="btn-row" style="margin-top:0.5rem">
+          <button class="primary" onclick="saveAllLink()">💾 Lưu link</button>
+          <button class="run" onclick="runAction('run_all_task')">▶ Chạy /all</button>
         </div>
-        <label><input type="checkbox" id="all-after" checked /> Tự chạy /all sau các lượt topic thường</label>
-        <h3 style="font-size:0.9rem;margin:1rem 0 0.5rem">Xếp bài /all (độc lập)</h3>
-        <div class="row">
-          <div><label>/doneN</label><input id="all-cpa" type="number" value="1" /></div>
-          <div><label>Mode</label><select id="all-mode"><option value="normal">normal</option><option value="xdone">xdone</option><option value="zdone">zdone</option></select></div>
-          <div><label>Media/lượt</label><input id="all-media" type="number" placeholder="auto từ ghim" /></div>
-          <div><label><input type="checkbox" id="all-use-ads" /> Xen ads</label></div>
-        </div>
-        <div class="pin-box">
-          <strong>📍 Bắt đầu lấy bài /all</strong>
-          <select id="all-pin-mode" style="margin-bottom:0.5rem"><option value="latest">Ghim mới nhất</option><option value="link">Link tin</option></select>
-          <input id="all-start-link" placeholder="https://t.me/c/.../topic/msg" />
-        </div>
-        <h2 style="margin-top:1rem">Kênh đích <span class="badge" id="all-ch-count">0</span></h2>
+        <p class="hint" id="all-source-hint">—</p>
+      </div>
+      <div class="card">
+        <h2>Kênh đích /all <span class="badge" id="all-ch-count">0</span></h2>
+        <p class="hint">Tick kênh → lưu real-time. Sync folder ở tab Kênh.</p>
         <div class="btn-row">
-          <button class="secondary" onclick="selectAllCh(true)">Chọn tất cả</button>
-          <button class="secondary" onclick="selectAllCh(false)">Bỏ chọn</button>
-          <button class="secondary" onclick="runAction('sync_folders')">🔄 Cập nhật kênh</button>
+          <button class="secondary" onclick="selectAllCh('all-ch',true)">Chọn tất cả</button>
+          <button class="secondary" onclick="selectAllCh('all-ch',false)">Bỏ chọn</button>
         </div>
         <div class="ch-list" id="all-channels"></div>
-        <div class="btn-row" style="margin-top:1rem">
-          <button class="primary" onclick="saveAllTask()">💾 Lưu cấu hình</button>
-          <button class="run" onclick="saveAllTask().then(()=>runAction('run_all_task'))">▶ Lưu & chạy /all</button>
-          <button class="secondary" onclick="previewAllTask()">👁 Xem trước xếp</button>
+      </div>
+    </section>
+
+    <section id="plain" class="panel">
+      <div class="card">
+        <h2>Up bài — nhánh không ads</h2>
+        <p class="hint">Kênh chỉ cần <strong>up bài thuần</strong> (không xen ads). Dùng chung link nguồn tab <strong>/all</strong>.</p>
+        <label class="toggle-row" style="display:flex;align-items:center;gap:0.75rem;margin:1rem 0">
+          <input type="checkbox" id="plain-enabled" onchange="patchPlain({enabled:this.checked})" />
+          <strong>Bật nhánh Up bài</strong>
+          <span class="badge" id="plain-status">—</span>
+        </label>
+        <p class="hint">Lệnh <code>/all</code> trên Telegram + auto lịch đều gửi bài lên các kênh này (kèm tab /all nếu bật).</p>
+      </div>
+      <div class="card">
+        <h2>Kênh Up bài <span class="badge" id="plain-ch-count">0</span></h2>
+        <div class="btn-row">
+          <button class="secondary" onclick="selectAllCh('plain-ch',true)">Chọn tất cả</button>
+          <button class="secondary" onclick="selectAllCh('plain-ch',false)">Bỏ chọn</button>
         </div>
+        <div class="ch-list" id="plain-channels"></div>
       </div>
     </section>
 
@@ -329,6 +332,8 @@
   <script>
     const $ = id => document.getElementById(id);
     let channelCache = [];
+    let channelSaveTimer = null;
+    let plainSaveTimer = null;
     let scheduleTimes = ["08:00", "20:00"];
     let es = null;
     let importQueue = [];
@@ -615,26 +620,41 @@
         : "<p style='color:var(--muted)'>Chưa có log.</p>";
     }
 
+    function renderChannelPicker(containerId, cssClass, channels, selectedIds, onChangeFn) {
+      const sel = new Set((selectedIds || []).map(String));
+      $(containerId).innerHTML = channels?.length
+        ? channels.map((c, i) => `
+        <label class="ch-item">
+          <input type="checkbox" class="${cssClass}" value="${c.id}" ${sel.has(String(c.id)) ? "checked" : ""} onchange="${onChangeFn}" />
+          <span>${i+1}. ${c.title} <span class="badge">${c.id}</span></span>
+        </label>`).join("")
+        : "<p>Chưa có kênh — tab Kênh → Sync folder</p>";
+    }
+
+    function renderAllTask(task, channels) {
+      $("all-enabled").checked = !!task.enabled;
+      $("all-status").innerHTML = task.enabled
+        ? `<span class="badge ok">ON</span>` : `<span class="badge warn">OFF</span>`;
+      $("all-source-link").value = task.start_link || "";
+      const srcOk = task.source_chat_id && task.source_topic_id;
+      $("all-source-hint").textContent = srcOk
+        ? `✓ Nguồn: ${task.source_chat_id}:${task.source_topic_id}${task.start_msg_id ? " · msg " + task.start_msg_id : ""}`
+        : "Chưa có link nguồn — dán link topic rồi Lưu";
+      $("all-ch-count").textContent = (task.selected_channel_ids || []).length;
+      renderChannelPicker("all-channels", "all-ch", channels, task.selected_channel_ids, "debounceAllChannels()");
+    }
+
+    function renderPlainTask(plain, channels) {
+      $("plain-enabled").checked = !!plain.enabled;
+      $("plain-status").innerHTML = plain.enabled
+        ? `<span class="badge ok">ON</span>` : `<span class="badge warn">OFF</span>`;
+      $("plain-ch-count").textContent = (plain.selected_channel_ids || []).length;
+      renderChannelPicker("plain-channels", "plain-ch", channels, plain.selected_channel_ids, "debouncePlainChannels()");
+    }
+
     function renderChannels(channels, task) {
       channelCache = channels;
-      const sel = new Set((task.selected_channel_ids || []).map(String));
-      $("all-enabled").checked = !!task.enabled;
-      $("all-src").value = task.source_chat_id || "";
-      $("all-topic").value = task.source_topic_id || "";
-      $("all-title").value = task.source_title || "";
-      $("all-after").checked = task.run_after_regular !== false;
-      $("all-cpa").value = task.xep_cpa ?? 1;
-      $("all-mode").value = task.xep_mode || "normal";
-      $("all-media").value = task.target_media_override || "";
-      $("all-use-ads").checked = !!task.use_ads;
-      $("all-pin-mode").value = task.pin_mode || "latest";
-      $("all-start-link").value = task.start_link || "";
-      $("all-ch-count").textContent = channels.length;
-      $("all-channels").innerHTML = channels.map((c, i) => `
-        <label class="ch-item">
-          <input type="checkbox" class="all-ch" value="${c.id}" ${sel.has(String(c.id)) ? "checked" : ""} />
-          <span>${i+1}. ${c.title} <span class="badge">${c.id}</span></span>
-        </label>`).join("") || "<p>Chưa có kênh — tab Kênh → Sync folder</p>";
+      renderAllTask(task, channels);
     }
 
     function renderGlobal(g) {
@@ -682,6 +702,7 @@
       renderInventory(snap.inventory);
       renderTopics(Object.values(snap.config.topic_sources || {}));
       renderChannels(snap.channels || channelCache, snap.config.all_task || {});
+      renderPlainTask(snap.config.plain_task || {}, snap.channels || channelCache);
       renderChannelsPage(snap.channels || channelCache, snap.folders || []);
       renderGlobal(snap.config.global || {});
       if (snap.runtime && snap.runtime.next_run_at) {
@@ -749,32 +770,48 @@
       runAction("xep_preview", { src_chat_id: src, topic_id: topic });
     }
 
-    function selectAllCh(on) { document.querySelectorAll(".all-ch").forEach(el => el.checked = on); }
-
-    async function saveAllTask() {
-      const ids = [...document.querySelectorAll(".all-ch:checked")].map(el => +el.value);
-      await api("/all-task", { method: "POST", body: JSON.stringify({
-        enabled: $("all-enabled").checked,
-        source_chat_id: +$("all-src").value || null,
-        source_topic_id: +$("all-topic").value || null,
-        source_title: $("all-title").value.trim(),
-        selected_channel_ids: ids,
-        run_after_regular: $("all-after").checked,
-        use_ads: $("all-use-ads").checked,
-        xep_cpa: +$("all-cpa").value || 1,
-        xep_mode: $("all-mode").value,
-        target_media_override: +$("all-media").value || null,
-        pin_mode: $("all-pin-mode").value,
-        start_link: $("all-start-link").value.trim(),
-      })});
-      toast(`Đã lưu /all — ${ids.length} kênh`);
+    function selectAllCh(cls, on) {
+      document.querySelectorAll("." + cls).forEach(el => { el.checked = on; });
+      if (cls === "all-ch") debounceAllChannels();
+      if (cls === "plain-ch") debouncePlainChannels();
     }
 
-    async function previewAllTask() {
-      await saveAllTask();
-      const src = +$("all-src").value, tid = +$("all-topic").value;
-      if (src && tid) xepPreview(src, tid);
-      else toast("Nhập chat + topic /all trước");
+    async function patchAll(patch) {
+      try {
+        const r = await api("/all-task", { method: "PATCH", body: JSON.stringify(patch) });
+        renderAllTask(r, channelCache);
+        toast(patch.enabled !== undefined ? (patch.enabled ? "Đã bật /all" : "Đã tắt /all") : "Đã lưu /all");
+      } catch (e) { toast("Lỗi: " + e.message); }
+    }
+
+    async function patchPlain(patch) {
+      try {
+        const r = await api("/plain-task", { method: "PATCH", body: JSON.stringify(patch) });
+        renderPlainTask(r, channelCache);
+        toast(patch.enabled !== undefined ? (patch.enabled ? "Đã bật Up bài" : "Đã tắt Up bài") : "Đã lưu Up bài");
+      } catch (e) { toast("Lỗi: " + e.message); }
+    }
+
+    function debounceAllChannels() {
+      clearTimeout(channelSaveTimer);
+      channelSaveTimer = setTimeout(async () => {
+        const ids = [...document.querySelectorAll(".all-ch:checked")].map(el => +el.value);
+        await patchAll({ selected_channel_ids: ids });
+      }, 400);
+    }
+
+    function debouncePlainChannels() {
+      clearTimeout(plainSaveTimer);
+      plainSaveTimer = setTimeout(async () => {
+        const ids = [...document.querySelectorAll(".plain-ch:checked")].map(el => +el.value);
+        await patchPlain({ selected_channel_ids: ids });
+      }, 400);
+    }
+
+    async function saveAllLink() {
+      const link = $("all-source-link").value.trim();
+      if (!link) { toast("Dán link nguồn trước"); return; }
+      await patchAll({ source_link: link });
     }
 
     async function saveSchedule() {

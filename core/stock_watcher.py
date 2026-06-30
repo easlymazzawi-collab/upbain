@@ -71,7 +71,11 @@ async def stock_poll_loop(run_topic: RunTopicFn) -> None:
                         for t in cfg.get("topic_sources", {}).values()
                     }
                     all_task = cfg.get("all_task") or {}
-                    if all_task.get("enabled") and all_task.get("source_chat_id"):
+                    plain_task = cfg.get("plain_task") or {}
+                    if (
+                        (all_task.get("enabled") or plain_task.get("enabled"))
+                        and all_task.get("source_chat_id")
+                    ):
                         ak = topic_key(all_task["source_chat_id"], all_task.get("source_topic_id") or 0)
                         if ak in waiting:
                             by_key[ak] = {

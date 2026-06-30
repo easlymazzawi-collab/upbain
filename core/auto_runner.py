@@ -231,24 +231,23 @@ async def run_all_task(
 ) -> bool:
     cfg = load_auto_config()
     task = cfg.get("all_task", {})
-    if not task.get("enabled"):
+    plain = cfg.get("plain_task") or {}
+    if not task.get("enabled") and not plain.get("enabled"):
         return False
     src_chat = task.get("source_chat_id")
     src_topic = task.get("source_topic_id")
-    ch_ids = task.get("selected_channel_ids") or []
-    if not src_chat or not src_topic or not ch_ids:
-        await notify("⚠️ /all task: chưa cấu hình nguồn hoặc kênh trên web.")
+    if not src_chat or not src_topic:
+        await notify("⚠️ /all: chưa có link nguồn — dán link tab /all rồi Lưu.")
         return False
 
-    import json
-    import os
-    path = CHANNELS_FILE
-    channels = []
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            all_ch = json.load(f)
-        idset = {str(i) for i in ch_ids}
-        channels = [c for c in all_ch if str(c.get("id")) in idset]
+    from core.all_config import load_destination_channels, split_destination_channels
+
+    all_chs, plain_chs = split_destination_channels(cfg)
+    channels = load_destination_channels(cfg)
+
+    if not channels:
+        await notify("⚠️ /all: chưa chọn kênh đích trên web (tab /all hoặc Up bài).")
+        return False
 
     base_tcfg = get_topic_source(src_chat, src_topic) or {"enabled": True}
     tcfg = {
@@ -269,8 +268,6 @@ async def run_all_task(
     tkey = topic_key(src_chat, src_topic)
 
     if not result.posts:
-        mark_waiting(tkey, task.get("source_title") or "/all", 0, target_media)
-        await notify("⚠️ /all task: không có bài — chờ bổ sung nguồn.")
         return False
 
     if require_full_batch() and not result.sufficient:
@@ -306,9 +303,10 @@ async def run_all_task(
     await _notify_html(
         notify,
         f"📦 <b>/all</b> · {msg_link(src_chat, src_topic, label='topic')}\n"
-        f"{result.total_posts} bài / {result.total_media} media → {len(channels)} kênh\n"
+        f"{result.total_posts} bài / {result.total_media} media → "
+        f"{len(all_chs)} kênh /all + {len(plain_chs)} up bài\n"
         f"Xếp: /done{xep['default_cpa']} mode={task.get('xep_mode', 'normal')} "
-        f"ads={'có' if use_ads else 'không'}",
+        f"ads={'có' if use_ads and all_chs else 'không'}",
     )
 
     if build_and_forward_all:

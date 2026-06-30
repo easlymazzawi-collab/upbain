@@ -47,7 +47,7 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
         "enabled": False,
         "source_chat_id": None,
         "source_topic_id": None,
-        "source_title": "",
+        "source_title": "/all",
         "selected_channel_ids": [],
         "run_after_regular": True,
         "use_ads": False,
@@ -58,6 +58,10 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
         "start_msg_id": None,
         "pin_mode": "latest",
         "cursor_msg_id": None,
+    },
+    "plain_task": {
+        "enabled": False,
+        "selected_channel_ids": [],
     },
 }
 

@@ -1419,13 +1419,15 @@ async def build_sequence_for_slot(slot, content_per_ads=1, mode="normal"):
 # ─────────────────────────────────────────────────────────
 
 async def do_all_forward(slot):
+    from core.all_config import load_destination_channels
+
     seq = [(SAVED_MESSAGES, mid) for mid in slot["content_msgs"]]
     slot["all_mode"] = False
     if not seq:
         return
-    channels = load_channels()
+    channels = load_destination_channels()
     if not channels:
-        await safe_send("⚠️ /all: chưa có kênh nào.")
+        await safe_send("⚠️ /all: chưa chọn kênh đích trên web (tab /all hoặc Up bài).")
         reset_slot(slot)
         return
     slot["final_sequence"]   = seq
@@ -1433,7 +1435,7 @@ async def do_all_forward(slot):
     slot["waiting"]          = False
     media_cnt = slot.get("total_media_count", 0)
     media_str = f"{len(seq)} bài / {media_cnt} media" if media_cnt else f"{len(seq)} bài"
-    await safe_send(f"📦 /all: up {media_str} → TẤT CẢ {len(channels)} kênh (không ads, ẩn tên).")
+    await safe_send(f"📦 /all: up {media_str} → {len(channels)} kênh đích (không ads, ẩn tên).")
     await _start_forward(slot, channels, "/all")
 
 
@@ -2020,14 +2022,25 @@ async def handler(client, msg: Message):
 
     # /all
     if text == "/all":
+        from core.all_config import load_destination_channels
+
         reset_slot(active_slot())
         active_slot()["all_mode"] = True
-        n_ch = len(load_channels())
-        await safe_send(
-            f"📦 Chế độ /all ĐÃ BẬT (dùng 1 lần).\n"
-            f"➡️ Forward bài vào Saved Messages → tool tự up lên TẤT CẢ {n_ch} kênh.\n"
-            f"Gõ /next để huỷ nếu đổi ý."
-        )
+        chs = load_destination_channels()
+        n_ch = len(chs)
+        if not n_ch:
+            await safe_send(
+                "📦 Chế độ /all ĐÃ BẬT (dùng 1 lần).\n"
+                "⚠️ Chưa chọn kênh đích trên web — tab <b>/all</b> hoặc <b>Up bài</b>.\n"
+                "➡️ Forward bài vào Saved Messages → tool tự up.\n"
+                "Gõ /next để huỷ nếu đổi ý."
+            )
+        else:
+            await safe_send(
+                f"📦 Chế độ /all ĐÃ BẬT (dùng 1 lần).\n"
+                f"➡️ Forward bài vào Saved Messages → tool tự up lên {n_ch} kênh đích (web).\n"
+                f"Gõ /next để huỷ nếu đổi ý."
+            )
         return
 
     # /xepbaiwhite (kiểm trước /xepbai)
@@ -2394,16 +2407,17 @@ async def _source_build_and_forward(slot_data, channels, cmd):
     )
 
 
-async def _all_build_and_forward(slot_data, channels):
-    """Xếp bài 1 lần → forward cùng sequence lên tất cả kênh /all."""
+async def _build_all_sequence_and_forward(slot_data, channels, *, use_ads: bool):
+    if not channels:
+        return
     slot = make_slot()
     slot["content_msgs"]      = list(slot_data["content_msgs"])
     slot["content_chat"]      = slot_data["content_chat"]
     slot["total_media_count"] = slot_data.get("total_media_count", 0)
     slot["topic_title"]       = slot_data.get("topic_title")
-    slot["skip_ads"]          = not slot_data.get("use_ads", True)
+    slot["skip_ads"]          = not use_ads
     slot["_batch_n"]          = len(slot["content_msgs"])
-    if slot_data.get("use_ads") and not slot["ads_msgs"]:
+    if use_ads and not slot["ads_msgs"]:
         await load_ads_into(slot)
     await build_sequence_for_slot(
         slot,
@@ -2416,6 +2430,21 @@ async def _all_build_and_forward(slot_data, channels):
         return
     for ch in channels:
         await forward_sequence_to_channel(ch["id"], list(seq))
+
+
+async def _all_build_and_forward(slot_data, channels):
+    """Xếp bài → forward: tab /all (có thể ads) + tab Up bài (không ads)."""
+    from core.all_config import split_destination_channels
+
+    all_chs, plain_chs = split_destination_channels()
+    if all_chs:
+        await _build_all_sequence_and_forward(
+            slot_data, all_chs, use_ads=bool(slot_data.get("use_ads", False)),
+        )
+    if plain_chs:
+        await _build_all_sequence_and_forward(
+            {**slot_data, "use_ads": False}, plain_chs, use_ads=False,
+        )
 
 
 async def _notify(text, parse_mode=None):
@@ -2443,8 +2472,10 @@ async def _try_auto_source_topic(src_id, topic_id, topic_title, *, manual=False,
         return
 
     async def _after_regular():
-        task = load_auto_config().get("all_task", {})
-        if task.get("enabled") and task.get("run_after_regular"):
+        cfg2 = load_auto_config()
+        task = cfg2.get("all_task", {})
+        plain = cfg2.get("plain_task") or {}
+        if task.get("run_after_regular") and (task.get("enabled") or plain.get("enabled")):
             await run_all_task(
                 app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
                 build_and_forward_all=_all_build_and_forward,
@@ -2590,7 +2621,8 @@ async def _run_scheduled_cycle(*, manual=False):
         await _run_all_topics_only(force_run=True)
 
     task = cfg.get("all_task", {})
-    if sch.get("run_all_task_after", True) and task.get("enabled"):
+    plain = cfg.get("plain_task") or {}
+    if sch.get("run_all_task_after", True) and (task.get("enabled") or plain.get("enabled")):
         mark_run_start("/all task")
         await run_all_task(
             app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
