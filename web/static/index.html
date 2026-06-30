@@ -438,14 +438,16 @@
       <div class="card">
         <h2>Cài đặt chung</h2>
         <div class="row">
-          <div><label>@xepbai</label><select id="g-xep-mode"><option value="off">off — tự xếp</option><option value="on">on — menu tay</option></select></div>
-          <div><label>@xepbaiwhite</label><input id="g-xep-wl" placeholder="sinh, real" /></div>
+          <div><label>@xepbai</label><select id="g-xep-mode" onchange="syncXepbaiSettingsUI()"><option value="off">off — tự xếp</option><option value="on">on — menu tay (/done)</option></select></div>
+          <div id="g-xep-wl-block"><label>@xepbaiwhite</label><input id="g-xep-wl" placeholder="sinh, real" /><p class="hint" style="margin:0.25rem 0 0">Kênh luôn hiện menu /done — kể cả khi @xepbai = off.</p></div>
+        </div>
+        <div id="g-auto-xep-block" class="row">
           <div>
             <label>Số content / 1 ads</label>
             <input id="g-cpa" type="number" min="1" title="Mặc định khi @xepbai=off — tương đương /done1, /done2..." />
-            <p class="hint" style="margin:0.25rem 0 0">Tỉ lệ xếp bài tự động: mỗi 1 ads xen bao nhiêu content (vd: 1 = /done1). Chỉ dùng khi @xepbai = off.</p>
+            <p class="hint" style="margin:0.25rem 0 0">Tỉ lệ tự xếp: mỗi 1 ads xen bao nhiêu content (vd: 1 = /done1).</p>
           </div>
-          <div><label>Mode</label><select id="g-mode"><option value="normal">normal</option><option value="xdone">xdone</option><option value="zdone">zdone</option></select></div>
+          <div><label>Mode xếp</label><select id="g-mode"><option value="normal">normal</option><option value="xdone">xdone</option><option value="zdone">zdone</option></select></div>
         </div>
         <div class="row">
           <div><label>Cảnh báo kho ≤</label><input id="g-threshold" type="number" /></div>
@@ -1648,6 +1650,14 @@
       });
     }
 
+    function syncXepbaiSettingsUI() {
+      const manual = ($("g-xep-mode")?.value || "off") === "on";
+      const autoBlock = $("g-auto-xep-block");
+      if (autoBlock) {
+        autoBlock.style.display = manual ? "none" : "";
+      }
+    }
+
     function renderGlobal(g) {
       if (!panelEditing("global", globalFormDirty)) {
         $("g-cpa").value = g.xepbai_off_default_cpa ?? 1;
@@ -1661,6 +1671,7 @@
         $("g-port").value = g.web_port ?? 8080;
         $("g-xep-mode").value = g.xepbai_mode || "off";
         $("g-xep-wl").value = (g.xepbai_whitelist_cmds || []).join(", ");
+        syncXepbaiSettingsUI();
       }
       if (!panelEditing("telegram", telegramFormDirty)) {
         $("tg-api-id").value = g.api_id || "";
