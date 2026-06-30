@@ -88,7 +88,7 @@
       <span>v28 — bot thông báo · lịch auto · real-time</span>
     </div>
     <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-      <div class="live"><span class="dot" id="live-dot"></span><span id="live-label">Đang kết nối...</span></div>
+      <div class="live"><span class="dot" id="live-dot"></span><span id="live-label">Đang kết nối...</span><span id="refresh-paused-hint" class="badge warn" style="display:none;margin-left:0.5rem;font-size:0.72rem;font-weight:500">Đang gõ — tạm dừng refresh</span></div>
       <div title="Chỉ cần nhập nếu bạn đã đặt Web token trong tab Cài đặt — khóa dashboard">
         <label style="display:inline;margin:0">Khóa web</label>
         <input id="token" type="password" placeholder="để trống nếu chưa khóa" style="width:160px;display:inline-block;margin:0" />
@@ -478,6 +478,12 @@
     let scheduleTimes = ["08:00", "20:00"];
     let es = null;
     let importQueue = [];
+    let aliasDrafts = {};
+    let plainCmdDrafts = {};
+    let snapshotPausedUntil = 0;
+    const SNAPSHOT_PAUSE_MS = 10000;
+    let lastSnapshot = null;
+    let refreshAfterEditTimer = null;
 
     function escHtml(s) {
       return String(s ?? "")
@@ -772,6 +778,7 @@
     }
 
     function renderTopics(list) {
+      if (containerHasFocus("topics-list") || isEditableFocusedIn("topics")) return;
       captureTopicLinkDrafts();
       if (!list.length) {
         $("topics-list").innerHTML =
@@ -896,6 +903,8 @@
 
     function renderPlainTopics(list) {
       $("plain-map-count").textContent = list?.length || 0;
+      if (containerHasFocus("plain-topics-list") || isEditableFocusedIn("plain")) return;
+      capturePlainCmdDrafts();
       if (!list?.length) {
         $("plain-topics-list").innerHTML =
           "<p style='color:var(--muted)'>Chưa có map Up bài — thêm ở trên hoặc Import → Đồng bộ lại.</p>";
@@ -904,7 +913,10 @@
       $("plain-topics-list").innerHTML = list.map(t => {
         const rowId = "plain-" + topicRowId(t);
         const name = t.topic_title || `topic ${t.topic_id || "?"}`;
-        const primaryCmd = (t.mapped_cmds || [])[0] || "";
+        const cmdKey = `${t.src_chat_id || 0}:${t.topic_id || 0}`;
+        const primaryCmd = plainCmdDrafts[cmdKey] !== undefined
+          ? plainCmdDrafts[cmdKey]
+          : ((t.mapped_cmds || [])[0] || "");
         const safeTitle = (t.topic_title || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
         const displayLink = plainLinkDrafts[rowId] !== undefined ? plainLinkDrafts[rowId] : (t.start_link || "");
         const escLink = displayLink.replace(/"/g, "&quot;");
@@ -963,6 +975,7 @@
           body: JSON.stringify({ topic_title: el.dataset.title, old_cmd, new_cmd }),
         });
         el.dataset.old = new_cmd;
+        delete plainCmdDrafts[`${el.dataset.src}:${el.dataset.tid}`];
         toast(`Up bài → /${new_cmd}`);
       } catch (e) { toast("Lỗi: " + (e.message || e)); }
     }
@@ -1104,14 +1117,20 @@
     }
 
     function renderAliasList(containerId, channels, branch) {
+      if (containerHasFocus(containerId)) return;
+      captureAliasDrafts();
       const list = Array.isArray(channels) ? channels.filter(c => c && c.id != null) : [];
       $(containerId).innerHTML = list.length
-        ? list.map((c, i) => `
+        ? list.map((c, i) => {
+          const draftKey = `${branch}:${c.id}`;
+          const aliasVal = aliasDrafts[draftKey] !== undefined ? aliasDrafts[draftKey] : (c.alias || "");
+          return `
         <div class="ch-item">
           <span class="ch-main">${i + 1}. ${escHtml(c.title || c.id)} <span class="badge">${escHtml(c.id)}</span></span>
-          <input class="alias-in" type="text" placeholder="alias" value="${escHtml(c.alias || "")}"
+          <input class="alias-in" type="text" placeholder="alias" value="${escHtml(aliasVal)}"
             data-branch="${branch}" data-id="${escHtml(c.id)}" onchange="saveAliasEl(this)" />
-        </div>`).join("")
+        </div>`;
+        }).join("")
         : "<p>Chưa có kênh — thêm folder hoặc sync (tab Import → Đồng bộ lại)</p>";
     }
 
@@ -1125,6 +1144,7 @@
         : `/channels/${channelId}/alias`;
       try {
         await api(path, { method: "PATCH", body: JSON.stringify({ alias }) });
+        delete aliasDrafts[`${branch}:${channelId}`];
         toast(alias ? `Alias → ${alias}` : "Đã xóa alias");
       } catch (e) {
         toast("Lỗi alias: " + (e.message || e));
@@ -1231,6 +1251,10 @@
     }
 
     function renderAllTask(task, channels) {
+      if (sectionHasFocus("alltask") && (allLinkDirty || containerHasFocus("all-channels"))) {
+        $("all-ch-count").textContent = (task.selected_channel_ids || []).length;
+        return;
+      }
       const list = Array.isArray(channels) ? channels.filter(c => c && c.id != null) : [];
       $("all-enabled").checked = !!task.enabled;
       $("all-status").innerHTML = task.enabled
@@ -1379,6 +1403,7 @@
       $("plain-status").innerHTML = plain.enabled
         ? `<span class="badge ok">ON</span>` : `<span class="badge warn">OFF</span>`;
       $("plain-ch-count").textContent = (plain.selected_channel_ids || []).length;
+      if (isEditableFocusedIn("plain") && (containerHasFocus("plain-channels") || containerHasFocus("plain-post-list"))) return;
       renderChannelPicker("plain-channels", "plain-ch", channels, plain.selected_channel_ids, "debouncePlainChannels()");
       renderPlainPostPicker(allBatchPreview, plain, allTaskCache);
     }
@@ -1388,9 +1413,83 @@
       renderAllTask(task, channels);
     }
 
+    function bumpEditPause() {
+      snapshotPausedUntil = Date.now() + SNAPSHOT_PAUSE_MS;
+      const hint = $("refresh-paused-hint");
+      if (hint) hint.style.display = "inline-flex";
+    }
+
+    function containerHasFocus(...containerIds) {
+      const ae = document.activeElement;
+      if (!ae) return false;
+      return containerIds.some(id => $(id)?.contains(ae));
+    }
+
+    function isEditableFocusedIn(...panelIds) {
+      const ae = document.activeElement;
+      if (!ae || !/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return false;
+      return panelIds.some(id => $(id)?.contains(ae));
+    }
+
+    function sectionHasFocus(...panelIds) {
+      const ae = document.activeElement;
+      if (!ae) return false;
+      return panelIds.some(id => $(id)?.contains(ae));
+    }
+
+    function formsDirty() {
+      return globalFormDirty || scheduleFormDirty || telegramFormDirty || allLinkDirty;
+    }
+
+    function hasUnsavedDrafts() {
+      return Object.keys(linkDrafts).length > 0
+        || Object.keys(plainLinkDrafts).length > 0
+        || Object.keys(mapPostDrafts).length > 0
+        || Object.keys(mapMediaDrafts).length > 0
+        || Object.keys(aliasDrafts).length > 0
+        || Object.keys(plainCmdDrafts).length > 0;
+    }
+
+    function shouldSkipHeavyRender() {
+      if (Date.now() < snapshotPausedUntil) return true;
+      if (formsDirty()) return true;
+      if (hasUnsavedDrafts()) return true;
+      if (isEditableFocusedIn("topics", "plain", "channels", "alltask", "global", "schedule", "telegram")) return true;
+      if (containerHasFocus("topics-list", "plain-topics-list", "channels-list", "plain-pool-list", "all-channels", "plain-channels")) return true;
+      return false;
+    }
+
+    function updateRefreshHint(paused) {
+      const hint = $("refresh-paused-hint");
+      if (!hint) return;
+      if (paused || shouldSkipHeavyRender()) {
+        hint.style.display = "inline-flex";
+      } else {
+        hint.style.display = "none";
+      }
+    }
+
     function panelEditing(panelId, dirty) {
       const panel = $(panelId);
       return dirty || (document.activeElement && panel?.contains(document.activeElement));
+    }
+
+    function captureAliasDrafts() {
+      document.querySelectorAll(".alias-in").forEach(el => {
+        const key = `${el.dataset.branch}:${el.dataset.id}`;
+        if (document.activeElement === el || el.value.trim()) {
+          aliasDrafts[key] = el.value;
+        }
+      });
+    }
+
+    function capturePlainCmdDrafts() {
+      document.querySelectorAll("#plain-topics-list .plain-map-cmd-in").forEach(el => {
+        const key = `${el.dataset.src}:${el.dataset.tid}`;
+        if (document.activeElement === el || el.value.trim()) {
+          plainCmdDrafts[key] = el.value;
+        }
+      });
     }
 
     function renderGlobal(g) {
@@ -1438,7 +1537,8 @@
     function addTime() { scheduleTimes.push("12:00"); renderTimeChips(); }
     function removeTime(i) { scheduleTimes.splice(i, 1); renderTimeChips(); }
 
-    function applySnapshot(snap) {
+    function applySnapshot(snap, { force = false } = {}) {
+      lastSnapshot = snap;
       try {
         const channels = snapChannels(snap);
         const plainCh = snapPlainChannels(snap);
@@ -1446,22 +1546,36 @@
         plainChannelCache = plainCh;
         renderMeta(snap.meta);
         renderRuntime(snap.runtime);
-        renderInventory(snap.inventory);
-        renderTopics(Object.values(snap.config?.topic_sources || {}));
-        renderPlainTopics(Object.values(snap.config?.plain_topic_sources || {}));
-        renderAllBatchPreview(snap.runtime?.all_batch_preview, snap.config?.all_task || {});
-        renderChannels(channels, snap.config?.all_task || {});
-        renderPlainTask(snap.config?.plain_task || {}, plainCh);
-        renderPlainPool(plainCh, snap.plain_folders || []);
-        renderChannelsPage(channels, snap.folders || []);
-        renderGlobal(snap.config?.global || {});
-        if (snap.runtime && snap.runtime.next_run_at) {
+        const skipHeavy = !force && shouldSkipHeavyRender();
+        updateRefreshHint(skipHeavy);
+        if (!skipHeavy) {
+          renderInventory(snap.inventory);
+          renderTopics(Object.values(snap.config?.topic_sources || {}));
+          renderPlainTopics(Object.values(snap.config?.plain_topic_sources || {}));
+          renderAllBatchPreview(snap.runtime?.all_batch_preview, snap.config?.all_task || {});
+          renderChannels(channels, snap.config?.all_task || {});
+          renderPlainTask(snap.config?.plain_task || {}, plainCh);
+          renderPlainPool(plainCh, snap.plain_folders || []);
+          renderChannelsPage(channels, snap.folders || []);
+          renderGlobal(snap.config?.global || {});
+          updateRefreshHint(false);
+        }
+        if (snap.runtime?.next_run_at && !panelEditing("schedule", scheduleFormDirty)) {
           $("sch-next-hint").textContent = `Lần chạy tiếp: ${fmtTs(snap.runtime.next_run_at)}`;
         }
       } catch (e) {
         console.error("applySnapshot", e);
         toast("Lỗi hiển thị UI: " + (e.message || e));
       }
+    }
+
+    function scheduleRefreshAfterEdit() {
+      clearTimeout(refreshAfterEditTimer);
+      refreshAfterEditTimer = setTimeout(() => {
+        if (lastSnapshot && !shouldSkipHeavyRender()) {
+          applySnapshot(lastSnapshot, { force: true });
+        }
+      }, 1500);
     }
 
     async function systemStart() {
@@ -1685,19 +1799,27 @@
     }
 
     $("token").addEventListener("change", connectStream);
-    $("all-source-link").addEventListener("input", () => { allLinkDirty = true; });
-    $("global").addEventListener("input", () => { globalFormDirty = true; });
-    $("global").addEventListener("change", () => { globalFormDirty = true; });
-    $("schedule").addEventListener("input", () => { scheduleFormDirty = true; });
-    $("schedule").addEventListener("change", () => { scheduleFormDirty = true; });
-    $("telegram").addEventListener("input", () => { telegramFormDirty = true; });
-    $("telegram").addEventListener("change", () => { telegramFormDirty = true; });
+    document.addEventListener("focusin", e => {
+      if (e.target?.matches?.("input, textarea, select")) bumpEditPause();
+    });
+    document.addEventListener("focusout", e => {
+      if (e.target?.matches?.("input, textarea, select")) scheduleRefreshAfterEdit();
+    });
+    $("all-source-link").addEventListener("input", () => { allLinkDirty = true; bumpEditPause(); });
+    $("global").addEventListener("input", () => { globalFormDirty = true; bumpEditPause(); });
+    $("global").addEventListener("change", () => { globalFormDirty = true; bumpEditPause(); });
+    $("schedule").addEventListener("input", () => { scheduleFormDirty = true; bumpEditPause(); });
+    $("schedule").addEventListener("change", () => { scheduleFormDirty = true; bumpEditPause(); });
+    $("telegram").addEventListener("input", () => { telegramFormDirty = true; bumpEditPause(); });
+    $("telegram").addEventListener("change", () => { telegramFormDirty = true; bumpEditPause(); });
     $("topics-list").addEventListener("input", e => {
+      bumpEditPause();
       if (e.target?.id && e.target.matches("input[type=text]")) {
         linkDrafts[e.target.id] = e.target.value;
       }
     });
     $("plain-topics-list").addEventListener("input", e => {
+      bumpEditPause();
       if (e.target?.id && e.target.matches("input[type=text]")) {
         plainLinkDrafts[e.target.id] = e.target.value;
       }

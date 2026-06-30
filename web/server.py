@@ -317,7 +317,7 @@ async def api_stream(
     x_token: str | None = Header(default=None),
 ):
     _check_token(authorization, x_token, token)
-    """SSE — push snapshot mỗi 2s + khi file thay đổi."""
+    """SSE — push snapshot mỗi 5s (chỉ khi dữ liệu đổi)."""
 
     async def gen():
         last_sig = ""
@@ -335,7 +335,7 @@ async def api_stream(
             except Exception as e:
                 err = json.dumps({"error": str(e), "ts": int(time.time())})
                 yield f"data: {err}\n\n"
-            await asyncio.sleep(2)
+            await asyncio.sleep(5)
 
     return StreamingResponse(
         gen(),
