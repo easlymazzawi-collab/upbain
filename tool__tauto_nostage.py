@@ -2442,6 +2442,11 @@ from core.inventory import get_all_inventory
 
 
 async def _source_build_and_forward(slot_data, channels, cmd):
+    from core.saved_staging import maybe_stage_slot_data
+
+    slot_data = await maybe_stage_slot_data(
+        app, slot_data, acquire=_fwd_bucket_get().acquire,
+    )
     slot = make_slot()
     slot["content_msgs"]        = list(slot_data["content_msgs"])
     slot["content_chat"]        = slot_data["content_chat"]
@@ -2477,8 +2482,13 @@ async def _forward_seq_to_channels(channels, seq, *, label: str = "batch"):
 
 
 async def _build_all_sequence_and_forward(slot_data, channels, *, use_ads: bool):
+    from core.saved_staging import maybe_stage_slot_data
+
     if not channels:
         return
+    slot_data = await maybe_stage_slot_data(
+        app, slot_data, acquire=_fwd_bucket_get().acquire,
+    )
     slot = make_slot()
     slot["content_msgs"]      = list(slot_data["content_msgs"])
     slot["content_chat"]      = slot_data["content_chat"]
@@ -2503,7 +2513,11 @@ async def _build_all_sequence_and_forward(slot_data, channels, *, use_ads: bool)
 async def _all_build_and_forward(slot_data, channels):
     """Xếp bài → forward: tab /all (có thể ads) + tab Up bài (không ads)."""
     from core.all_config import split_destination_channels
+    from core.saved_staging import maybe_stage_slot_data
 
+    slot_data = await maybe_stage_slot_data(
+        app, slot_data, acquire=_fwd_bucket_get().acquire,
+    )
     all_chs, plain_chs = split_destination_channels()
     if all_chs:
         await _build_all_sequence_and_forward(
@@ -2511,13 +2525,21 @@ async def _all_build_and_forward(slot_data, channels):
         )
     if plain_chs:
         plain_msgs = slot_data.get("plain_content_msgs")
+        id_map = slot_data.get("_stage_id_map") or {}
         if plain_msgs is None:
             from core.all_config import resolve_plain_posts
             from core.source_collector import AtomicPost
 
-            raw = slot_data.get("content_msgs") or []
-            posts = [AtomicPost(msg_id=m, media_count=0) for m in raw]
-            plain_msgs = [p.msg_id for p in resolve_plain_posts(posts)]
+            posts = slot_data.get("_atomic_posts") or [
+                AtomicPost(msg_id=int(m), media_count=0)
+                for m in (slot_data.get("content_msgs") or [])
+            ]
+            plain_msgs = [
+                id_map.get(p.msg_id, p.msg_id)
+                for p in resolve_plain_posts(posts)
+            ]
+        elif id_map:
+            plain_msgs = [id_map.get(int(m), int(m)) for m in plain_msgs]
         plain_media = slot_data.get("plain_total_media_count")
         if plain_media is None and plain_msgs:
             plain_media = slot_data.get("total_media_count", 0)

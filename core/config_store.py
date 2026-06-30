@@ -29,6 +29,7 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
         "web_host": "0.0.0.0",
         "web_port": 8080,
         "web_token": "",
+        "auto_stage_via_saved": True,
         "auto_run_enabled": True,
         "system_armed": False,
         "require_full_batch": True,

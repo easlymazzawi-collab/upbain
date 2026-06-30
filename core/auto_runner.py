@@ -238,6 +238,7 @@ async def run_topic_batch(
         "mode": xep["mode"],
         "_from_source": True,
         "_collect_result": result,
+        "_atomic_posts": posts,
     }
 
     await build_and_forward(slot_data, channels, picked)
@@ -414,6 +415,7 @@ async def run_all_task(
             "mode": task.get("xep_mode") or xep["mode"],
             "_from_source": True,
             "_collect_result": result,
+            "_atomic_posts": result.posts,
         }
         await build_and_forward_all(slot_data, channels)
     else:
