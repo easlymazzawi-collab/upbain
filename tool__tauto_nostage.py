@@ -362,6 +362,11 @@ def save_channels(channels):
     with open(CHANNELS_FILE, "w", encoding="utf-8") as f:
         json.dump(channels, f, ensure_ascii=False, indent=2)
 
+
+def invalidate_channels_cache():
+    global _channels_cache
+    _channels_cache = None
+
 async def remove_dead_channel(chat_id):
     async with _channels_write_lock:
         channels = load_channels()
@@ -2411,6 +2416,23 @@ async def _forward_seq_all_channels(ch_id, seq):
     await forward_sequence_to_channel(ch_id, list(seq))
 
 
+async def _run_all_topics_only():
+    cfg = load_auto_config()
+    topics = list(cfg.get("topic_sources", {}).values())
+    ran = 0
+    for t in topics:
+        if not t.get("enabled", True):
+            continue
+        sid, tid = t.get("src_chat_id"), t.get("topic_id")
+        title = t.get("topic_title") or ""
+        if not sid or not tid:
+            continue
+        mark_run_start(f"Topic {title or tid}")
+        await _try_auto_source_topic(sid, tid, title)
+        ran += 1
+    return ran
+
+
 async def _run_scheduled_cycle():
     """Chạy tất cả topic nguồn + /all task theo lịch web."""
     cfg = load_auto_config()
@@ -2424,17 +2446,8 @@ async def _run_scheduled_cycle():
     mark_run_start("Lịch auto hằng ngày")
     await _notify("🕐 Bắt đầu lượt auto theo lịch")
 
-    topics = list(cfg.get("topic_sources", {}).values())
     if sch.get("run_all_topics", True):
-        for t in topics:
-            if not t.get("enabled", True):
-                continue
-            sid, tid = t.get("src_chat_id"), t.get("topic_id")
-            title = t.get("topic_title") or ""
-            if sid is None or tid is None:
-                continue
-            mark_run_start(f"Topic {title or tid}")
-            await _try_auto_source_topic(sid, tid, title)
+        await _run_all_topics_only()
 
     task = cfg.get("all_task", {})
     if sch.get("run_all_task_after", True) and task.get("enabled"):
@@ -2447,17 +2460,108 @@ async def _run_scheduled_cycle():
     await _notify("✅ Hoàn thành lượt auto theo lịch — chờ giờ chạy tiếp theo")
 
 
+async def _manual_sync_folders():
+    folders = load_folders()
+    if not folders:
+        await _notify("⚠️ Chưa có folder — dùng /addf trên Telegram hoặc import folders.json")
+        return 0
+    mark_run_start("Sync folder kênh")
+    total_added = 0
+    for fd in folders:
+        slug = fd.get("slug")
+        if not slug:
+            continue
+        try:
+            added = await cmd_addfolder(f"https://t.me/addlist/{slug}", silent=True, remember=False)
+            total_added += added or 0
+        except Exception as e:
+            log("SYNC", f"folder {slug}: {e}")
+        await asyncio.sleep(2)
+    invalidate_channels_cache()
+    mark_run_done("ok")
+    await _notify(f"🔄 Sync folder xong — thêm {total_added} kênh mới, tổng {len(load_channels())} kênh")
+    return total_added
+
+
+async def _execute_web_action(action: dict):
+    from core.web_actions import action_labels
+
+    atype = action.get("type", "")
+    params = action.get("params") or {}
+    label = action_labels().get(atype, atype)
+    append_log("info", f"▶ Web: {label}")
+
+    try:
+        if atype == "run_full_cycle":
+            await _run_scheduled_cycle()
+        elif atype == "run_all_topics":
+            mark_run_start("Tất cả topic nguồn")
+            n = await _run_all_topics_only()
+            mark_run_done("ok")
+            await _notify(f"✅ Đã chạy {n} topic nguồn")
+        elif atype == "run_all_task":
+            mark_run_start("/all task")
+            ok = await run_all_task(
+                app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels
+            )
+            mark_run_done("ok" if ok else "skip")
+            if not ok:
+                await _notify("⚠️ /all task: kiểm tra chat nguồn + kênh đích trên web")
+        elif atype == "run_topic":
+            sid = int(params["src_chat_id"])
+            tid = int(params["topic_id"])
+            title = params.get("topic_title") or ""
+            mark_run_start(f"Topic {title or tid}")
+            await _try_auto_source_topic(sid, tid, title)
+            mark_run_done("ok")
+        elif atype == "scan_topic":
+            sid = int(params["src_chat_id"])
+            tid = int(params["topic_id"])
+            await cmd_scan_inventory(sid, tid)
+        elif atype == "sync_folders":
+            await _manual_sync_folders()
+        elif atype == "check_channels":
+            mark_run_start("Check kênh")
+            dead = await cmd_checkchan(auto_clean=True, silent=False)
+            invalidate_channels_cache()
+            mark_run_done("ok")
+            if dead:
+                await _notify(f"🧹 Đã xóa {dead} kênh chết — còn {len(load_channels())} kênh")
+            else:
+                await _notify(f"✅ Tất cả {len(load_channels())} kênh OK")
+        else:
+            append_log("warn", f"Action không hỗ trợ: {atype}")
+    except Exception as e:
+        mark_run_done("error")
+        append_log("error", f"Lỗi {label}: {e}")
+        await _notify(f"❌ Lỗi {label}: {type(e).__name__}")
+
+
+async def task_process_web_actions():
+    await asyncio.sleep(5)
+    while True:
+        try:
+            from core.web_actions import pop_next_action
+            action = pop_next_action()
+            if action:
+                await _execute_web_action(action)
+        except Exception as e:
+            log("WARN", f"web action: {e}")
+        await asyncio.sleep(2)
+
+
 async def cmd_scan_inventory(src_id: int, topic_id: int):
     cfg = load_auto_config()
     tcfg = get_topic_source(src_id, topic_id) or {"enabled": True}
     result = await collect_batch_from_topic(app, src_id, topic_id, tcfg, cfg.get("global", {}))
-    await safe_send(
+    msg = (
         f"📊 Scan {src_id}:{topic_id}\n"
         f"  Ghim: {result.pinned_msg_id} | cursor → {result.next_pin_msg_id}\n"
         f"  Kho: {result.remaining_media} media / {result.remaining_posts} bài\n"
         f"  Target: {result.params.get('target_media')} media / {result.params.get('target_ads')} ads\n"
         + (f"  {result.warn}" if result.warn else "")
     )
+    await _notify(msg)
 
 
 def _start_web_server():
@@ -2548,6 +2652,7 @@ async def main():
     asyncio.ensure_future(task_auto_sync_folders())
     asyncio.ensure_future(task_auto_clean_dead())
     asyncio.ensure_future(scheduler_loop(_run_scheduled_cycle))
+    asyncio.ensure_future(task_process_web_actions())
     _start_web_server()
 
     await _notify(

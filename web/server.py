@@ -20,7 +20,8 @@ from core.config_store import (
 from core.import_legacy import analyze_uploads, apply_import
 from core.runtime import append_log, get_runtime
 from core.scheduler import compute_next_run_ts
-from core.settings import CHANNELS_FILE, web_token
+from core.settings import CHANNELS_FILE, api_ready, web_token
+from core.web_actions import action_labels, list_pending_actions, queue_action
 
 WEB_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -112,11 +113,28 @@ def _snapshot() -> dict[str, Any]:
     if os.path.exists(CHANNELS_FILE):
         with open(CHANNELS_FILE, "r", encoding="utf-8") as f:
             channels = json.load(f)
+    folders = []
+    if os.path.exists("folders.json"):
+        with open("folders.json", "r", encoding="utf-8") as f:
+            folders = json.load(f)
+    all_task = cfg.get("all_task") or {}
     return {
         "config": {**cfg, "global": safe_global},
         "inventory": load_inventory(),
         "runtime": {**rt, "next_run_at": next_ts or rt.get("next_run_at", 0)},
         "channels": channels,
+        "folders": folders,
+        "meta": {
+            "channel_count": len(channels),
+            "folder_count": len(folders),
+            "topic_count": len(cfg.get("topic_sources") or {}),
+            "userbot_ready": api_ready(),
+            "pending_actions": len(list_pending_actions()),
+            "all_task_enabled": bool(all_task.get("enabled")),
+            "all_task_configured": bool(
+                all_task.get("source_chat_id") and all_task.get("selected_channel_ids")
+            ),
+        },
         "ts": int(time.time()),
     }
 
@@ -272,14 +290,42 @@ async def api_channels(_=Depends(_auth)):
 
 @app.post("/api/trigger/{src_chat_id}/{topic_id}")
 async def api_trigger(src_chat_id: int, topic_id: int, _=Depends(_auth)):
-    cfg = load_auto_config()
-    cfg.setdefault("pending_triggers", []).append({
+    action = queue_action("run_topic", {
         "src_chat_id": src_chat_id,
         "topic_id": topic_id,
-        "ts": time.time(),
     })
-    save_auto_config(cfg)
-    return {"ok": True, "message": "Đã queue — tool sẽ chạy nếu auto_run bật"}
+    append_log("info", f"Web queue: chạy topic {src_chat_id}:{topic_id}")
+    return {"ok": True, "action": action, "message": "Đã xếp hàng — userbot sẽ chạy trong vài giây"}
+
+
+class ActionIn(BaseModel):
+    type: str
+    params: dict = Field(default_factory=dict)
+
+
+@app.get("/api/actions")
+async def api_actions_list(_=Depends(_auth)):
+    return {
+        "pending": list_pending_actions(),
+        "labels": action_labels(),
+        "userbot_ready": api_ready(),
+    }
+
+
+@app.post("/api/actions")
+async def api_actions_run(body: ActionIn, _=Depends(_auth)):
+    allowed = set(action_labels().keys())
+    if body.type not in allowed:
+        raise HTTPException(400, f"Action không hợp lệ. Cho phép: {', '.join(sorted(allowed))}")
+    action = queue_action(body.type, body.params)
+    label = action_labels().get(body.type, body.type)
+    append_log("info", f"Web queue: {label}")
+    msg = (
+        f"Đã xếp hàng: {label}. Userbot xử lý trong ~2s."
+        if api_ready()
+        else f"Đã lưu lệnh '{label}' — restart userbot (có API) để chạy."
+    )
+    return {"ok": True, "action": action, "message": msg}
 
 
 async def _read_uploads(files: list[UploadFile]) -> list[tuple[str, bytes]]:

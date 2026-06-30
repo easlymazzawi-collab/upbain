@@ -51,7 +51,13 @@
     .log-line { padding: 0.25rem 0; border-bottom: 1px solid var(--border); color: var(--muted); }
     .log-line.warn { color: var(--warn); }
     .log-line.error { color: var(--danger); }
-    .time-chip { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0.25rem 0.25rem 0.25rem 0; padding: 0.25rem 0.5rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; }
+    .btn-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.75rem 0; }
+    .btn-row button { flex: 1; min-width: 140px; }
+    .action-bar button.run { background: var(--accent2); color: #fff; border: none; font-weight: 600; }
+    .action-bar button.run-warn { background: #b45309; color: #fff; border: none; font-weight: 600; }
+    .status-banner { padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.9rem; }
+    .status-banner.warn { background: #422006; border: 1px solid var(--warn); color: var(--warn); }
+    .status-banner.ok { background: #064e3b; border: 1px solid var(--accent2); color: var(--accent2); }
   </style>
 </head>
 <body>
@@ -71,9 +77,10 @@
 
   <main>
     <div class="tabs">
-      <button class="active" data-tab="dashboard">Dashboard</button>
+      <button class="active" data-tab="dashboard">Điều khiển</button>
       <button data-tab="topics">Topic nguồn</button>
-      <button data-tab="alltask">/all Task</button>
+      <button data-tab="alltask">/all — Chat bài cuối</button>
+      <button data-tab="channels">Kênh</button>
       <button data-tab="schedule">Lịch auto</button>
       <button data-tab="telegram">Telegram & Bot</button>
       <button data-tab="import">Import dữ liệu cũ</button>
@@ -81,11 +88,30 @@
     </div>
 
     <section id="dashboard" class="panel active">
+      <div id="boot-banner" class="status-banner warn" style="display:none"></div>
       <div class="stat-row">
+        <div class="stat"><div class="lbl">Userbot</div><div class="val" id="st-bot">—</div></div>
         <div class="stat"><div class="lbl">Trạng thái</div><div class="val" id="st-status">—</div></div>
-        <div class="stat"><div class="lbl">Task hiện tại</div><div class="val" id="st-task">—</div></div>
-        <div class="stat"><div class="lbl">Lần chạy cuối</div><div class="val" id="st-last">—</div></div>
-        <div class="stat"><div class="lbl">Lần chạy tiếp</div><div class="val" id="st-next">—</div></div>
+        <div class="stat"><div class="lbl">Kênh</div><div class="val" id="st-channels">—</div></div>
+        <div class="stat"><div class="lbl">Lệnh chờ</div><div class="val" id="st-pending">—</div></div>
+      </div>
+      <div class="card action-bar">
+        <h2>▶ Bắt đầu chạy</h2>
+        <p class="hint">Bấm nút → tool xếp hàng → userbot thực thi trong ~2 giây. Theo dõi log bên dưới.</p>
+        <div class="btn-row">
+          <button class="run" onclick="runAction('run_full_cycle')">▶ Full cycle<br><small style="font-weight:400;opacity:.85">Topic + /all</small></button>
+          <button class="run" onclick="runAction('run_all_topics')">▶ Tất cả topic</button>
+          <button class="run" onclick="runAction('run_all_task')">▶ Chạy /all ngay</button>
+        </div>
+        <div class="btn-row">
+          <button class="secondary" onclick="runAction('sync_folders')">🔄 Sync folder → cập nhật kênh</button>
+          <button class="secondary" onclick="runAction('check_channels')">✅ Check kênh chết</button>
+        </div>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div class="lbl">Task hiện tại</div><div class="val" id="st-task" style="font-size:0.95rem">—</div></div>
+        <div class="stat"><div class="lbl">Lần chạy cuối</div><div class="val" id="st-last" style="font-size:0.95rem">—</div></div>
+        <div class="stat"><div class="lbl">Lần chạy tiếp (lịch)</div><div class="val" id="st-next" style="font-size:0.95rem">—</div></div>
       </div>
       <div class="card">
         <h2>Kho media theo topic</h2>
@@ -100,6 +126,7 @@
     <section id="topics" class="panel">
       <div class="card">
         <h2>Thêm / sửa topic nguồn</h2>
+        <p class="hint">Chat forum + topic chứa bài nguồn (ghim bài kế tiếp). Khác với chat /all ở tab riêng.</p>
         <div class="row">
           <div><label>Chat ID nguồn</label><input id="t-src" type="number" placeholder="-1001234567890" /></div>
           <div><label>Topic ID</label><input id="t-topic" type="number" placeholder="5" /></div>
@@ -120,18 +147,48 @@
 
     <section id="alltask" class="panel">
       <div class="card">
-        <h2>/all Task</h2>
+        <h2>/all — Up bài cuối lên nhiều kênh</h2>
+        <p class="hint">Chat/group <strong>chứa bài /all</strong>. Tool lấy bài từ topic này → forward lên kênh đã chọn (không ads).</p>
         <label><input type="checkbox" id="all-enabled" /> Bật /all task</label>
         <div class="row">
-          <div><label>Chat nguồn</label><input id="all-src" type="number" /></div>
-          <div><label>Topic ID</label><input id="all-topic" type="number" /></div>
+          <div>
+            <label>Chat ID chứa bài /all</label>
+            <input id="all-src" type="number" placeholder="-1001234567890" />
+          </div>
+          <div>
+            <label>Topic ID trong chat</label>
+            <input id="all-topic" type="number" placeholder="12" />
+          </div>
+          <div>
+            <label>Tên ghi chú</label>
+            <input id="all-title" placeholder="kho /all" />
+          </div>
         </div>
-        <label><input type="checkbox" id="all-after" checked /> Chạy sau các lượt thường</label>
-        <h2 style="margin-top:1rem">Chọn kênh</h2>
-        <button class="secondary" onclick="selectAllCh(true)">Chọn tất cả</button>
-        <button class="secondary" onclick="selectAllCh(false)">Bỏ chọn</button>
+        <label><input type="checkbox" id="all-after" checked /> Tự chạy /all sau các lượt topic thường</label>
+        <h2 style="margin-top:1rem">Kênh đích <span class="badge" id="all-ch-count">0</span></h2>
+        <div class="btn-row">
+          <button class="secondary" onclick="selectAllCh(true)">Chọn tất cả</button>
+          <button class="secondary" onclick="selectAllCh(false)">Bỏ chọn</button>
+          <button class="secondary" onclick="runAction('sync_folders')">🔄 Cập nhật kênh</button>
+        </div>
         <div class="ch-list" id="all-channels"></div>
-        <button class="primary" style="margin-top:1rem" onclick="saveAllTask()">Lưu /all task</button>
+        <div class="btn-row" style="margin-top:1rem">
+          <button class="primary" onclick="saveAllTask()">💾 Lưu cấu hình</button>
+          <button class="run" onclick="saveAllTask().then(()=>runAction('run_all_task'))">▶ Lưu & chạy /all</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="channels" class="panel">
+      <div class="card">
+        <h2>Quản lý kênh <span class="badge" id="ch-total">0</span></h2>
+        <p class="hint">Thêm kênh qua Telegram: <code>/add</code> <code>/addf</code>. Ở đây sync folder & check kênh chết.</p>
+        <div class="btn-row">
+          <button class="run" onclick="runAction('sync_folders')">🔄 Sync folder</button>
+          <button class="secondary" onclick="runAction('check_channels')">✅ Check kênh chết</button>
+        </div>
+        <p class="hint" id="folder-info">—</p>
+        <div class="ch-list" id="channels-list" style="max-height:480px"></div>
       </div>
     </section>
 
@@ -367,17 +424,52 @@
 
     function renderTopics(list) {
       if (!list.length) {
-        $("topics-list").innerHTML = "<p style='color:var(--muted)'>Chưa có topic.</p>";
+        $("topics-list").innerHTML = "<p style='color:var(--muted)'>Chưa có topic — thêm ở form trên hoặc Import topic_map.txt</p>";
         return;
       }
       $("topics-list").innerHTML = list.map(t => `
-        <div style="padding:0.75rem 0;border-bottom:1px solid var(--border)">
-          <strong>${t.topic_title || t.topic_id}</strong>
-          <span class="badge ${t.enabled !== false ? "ok" : "warn"}">${t.src_chat_id}:${t.topic_id}</span>
-          <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem">
-            media=${t.target_media_override || "pin"} · ads=${t.target_ads_override || "pin"} · cmds=${(t.mapped_cmds||[]).join(",")}
+        <div style="padding:0.75rem 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;align-items:center">
+          <div>
+            <strong>${t.topic_title || t.topic_id}</strong>
+            <span class="badge ${t.enabled !== false ? "ok" : "warn"}">${t.src_chat_id}:${t.topic_id}</span>
+            <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem">
+              media=${t.target_media_override || "pin"} · ads=${t.target_ads_override || "pin"} · cmds=${(t.mapped_cmds||[]).join(",")}
+            </div>
+          </div>
+          <div style="display:flex;gap:0.35rem">
+            <button class="run" style="padding:0.35rem 0.7rem;font-size:0.8rem" onclick="runTopic(${t.src_chat_id},${t.topic_id},'${(t.topic_title||'').replace(/'/g,"")}')">▶ Chạy</button>
+            <button class="secondary" style="padding:0.35rem 0.7rem;font-size:0.8rem" onclick="scanTopic(${t.src_chat_id},${t.topic_id})">📊 Scan</button>
           </div>
         </div>`).join("");
+    }
+
+    function renderMeta(meta) {
+      if (!meta) return;
+      const banner = $("boot-banner");
+      if (!meta.userbot_ready) {
+        banner.style.display = "block";
+        banner.className = "status-banner warn";
+        banner.innerHTML = "⚠️ Userbot chưa chạy (thiếu API hoặc chưa restart). Cấu hình tab <strong>Telegram & Bot</strong> hoặc <strong>Import .env</strong> → restart tool. Lệnh bấm ở đây sẽ xếp hàng chờ.";
+      } else {
+        banner.style.display = "block";
+        banner.className = "status-banner ok";
+        banner.textContent = "✅ Userbot đang chạy — bấm ▶ để chạy task, theo dõi log real-time bên dưới.";
+      }
+      $("st-bot").innerHTML = meta.userbot_ready
+        ? `<span class="badge ok">Online</span>` : `<span class="badge warn">Web only</span>`;
+      $("st-channels").textContent = meta.channel_count ?? "0";
+      $("st-pending").textContent = meta.pending_actions ?? "0";
+      $("ch-total").textContent = meta.channel_count ?? "0";
+      $("all-ch-count").textContent = meta.channel_count ?? "0";
+    }
+
+    function renderChannelsPage(channels, folders) {
+      $("folder-info").textContent = folders?.length
+        ? `📁 ${folders.length} folder auto-sync: ${folders.map(f=>f.title||f.slug).join(", ")}`
+        : "📁 Chưa có folder — dùng /addf trên Telegram";
+      $("channels-list").innerHTML = channels?.length
+        ? channels.map((c,i)=>`<div class="ch-item"><span>${i+1}. ${c.title} <span class="badge">${c.id}</span>${c.alias?` · ${c.alias}`:""}</span></div>`).join("")
+        : "<p>Chưa có kênh — /add hoặc Sync folder</p>";
     }
 
     function renderRuntime(rt) {
@@ -400,12 +492,14 @@
       $("all-enabled").checked = !!task.enabled;
       $("all-src").value = task.source_chat_id || "";
       $("all-topic").value = task.source_topic_id || "";
+      $("all-title").value = task.source_title || "";
       $("all-after").checked = task.run_after_regular !== false;
+      $("all-ch-count").textContent = channels.length;
       $("all-channels").innerHTML = channels.map((c, i) => `
         <label class="ch-item">
           <input type="checkbox" class="all-ch" value="${c.id}" ${sel.has(String(c.id)) ? "checked" : ""} />
           <span>${i+1}. ${c.title} <span class="badge">${c.id}</span></span>
-        </label>`).join("") || "<p>Chưa có kênh.</p>";
+        </label>`).join("") || "<p>Chưa có kênh — tab Kênh → Sync folder</p>";
     }
 
     function renderGlobal(g) {
@@ -442,14 +536,33 @@
     function removeTime(i) { scheduleTimes.splice(i, 1); renderTimeChips(); }
 
     function applySnapshot(snap) {
+      renderMeta(snap.meta);
       renderRuntime(snap.runtime);
       renderInventory(snap.inventory);
       renderTopics(Object.values(snap.config.topic_sources || {}));
       renderChannels(snap.channels || channelCache, snap.config.all_task || {});
+      renderChannelsPage(snap.channels || channelCache, snap.folders || []);
       renderGlobal(snap.config.global || {});
       if (snap.runtime && snap.runtime.next_run_at) {
         $("sch-next-hint").textContent = `Lần chạy tiếp: ${fmtTs(snap.runtime.next_run_at)}`;
       }
+    }
+
+    async function runAction(type, params = {}) {
+      try {
+        const r = await api("/actions", { method: "POST", body: JSON.stringify({ type, params }) });
+        toast(r.message);
+      } catch (e) {
+        toast("Lỗi: " + e.message);
+      }
+    }
+
+    function runTopic(src, topic, title) {
+      runAction("run_topic", { src_chat_id: src, topic_id: topic, topic_title: title || "" });
+    }
+
+    function scanTopic(src, topic) {
+      runAction("scan_topic", { src_chat_id: src, topic_id: topic });
     }
 
     function connectStream() {
@@ -496,6 +609,7 @@
         enabled: $("all-enabled").checked,
         source_chat_id: +$("all-src").value || null,
         source_topic_id: +$("all-topic").value || null,
+        source_title: $("all-title").value.trim(),
         selected_channel_ids: ids,
         run_after_regular: $("all-after").checked,
       })});
