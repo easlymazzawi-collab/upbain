@@ -18,11 +18,11 @@ from core.config_store import (
     upsert_topic_source,
 )
 from core.import_legacy import analyze_uploads, apply_import
-from core.map_config import apply_start_link_to_topic, clear_start_link, sync_topic_to_map_file
+from core.map_config import apply_start_link_flexible, apply_start_link_to_topic, clear_start_link, sync_topic_to_map_file
 from core.runtime import append_log, get_runtime
 from core.scheduler import compute_next_run_ts
 from core.bot_notify import send_bot_notify
-from core.settings import api_ready, web_token, system_armed, set_system_armed
+from core.settings import CHANNELS_FILE, api_ready, web_token, system_armed, set_system_armed
 from core.web_actions import action_labels, list_pending_actions, queue_action
 
 WEB_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -89,6 +89,13 @@ class AllTaskIn(BaseModel):
 
 class StartLinkIn(BaseModel):
     link: str
+
+
+class TopicStartLinkIn(BaseModel):
+    link: str
+    src_chat_id: int | None = None
+    topic_id: int | None = None
+    topic_title: str = ""
 
 
 class GlobalIn(BaseModel):
@@ -319,6 +326,24 @@ async def api_topics(_=Depends(_auth)):
 async def post_topic(body: TopicSourceIn, _=Depends(_auth)):
     entry = upsert_topic_source(body.src_chat_id, body.topic_id, body.model_dump())
     sync_topic_to_map_file(entry)
+    return entry
+
+
+@app.post("/api/topics/start-link")
+async def post_topic_start_link_flexible(body: TopicStartLinkIn, _=Depends(_auth)):
+    try:
+        entry = apply_start_link_flexible(
+            body.link,
+            src_chat_id=body.src_chat_id,
+            topic_id=body.topic_id,
+            topic_title=body.topic_title or None,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    append_log(
+        "info",
+        f"Set start link {entry.get('topic_title') or entry.get('src_chat_id')} → msg {entry.get('start_msg_id')}",
+    )
     return entry
 
 

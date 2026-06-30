@@ -66,6 +66,11 @@
     .btn-start { background: var(--accent2); color: #fff; border: none; padding: 1rem 2rem; border-radius: 12px; cursor: pointer; font-weight: 700; font-size: 1.1rem; min-width: 180px; }
     .btn-stop { background: var(--danger); color: #fff; border: none; padding: 1rem 2rem; border-radius: 12px; cursor: pointer; font-weight: 700; font-size: 1.1rem; min-width: 140px; }
     .btn-start:disabled, .btn-stop:disabled { opacity: 0.45; cursor: not-allowed; }
+    .topic-row { border: 1px solid var(--border); border-radius: 10px; padding: 1rem; margin-bottom: 0.75rem; background: var(--bg); }
+    .topic-info { margin-bottom: 0.6rem; font-size: 0.95rem; }
+    .topic-link-row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    .topic-link-row input { flex: 1; min-width: 220px; margin: 0; }
+    .topic-link-row button { margin: 0; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -86,7 +91,7 @@
   <main>
     <div class="tabs">
       <button class="active" data-tab="dashboard">Điều khiển</button>
-      <button data-tab="topics">Map & Xếp bài</button>
+      <button data-tab="topics">Topic map</button>
       <button data-tab="alltask">/all — Chat bài cuối</button>
       <button data-tab="channels">Kênh</button>
       <button data-tab="schedule">Lịch auto</button>
@@ -140,51 +145,12 @@
 
     <section id="topics" class="panel">
       <div class="card">
-        <h2>Thêm map mới</h2>
-        <p class="hint">Giống topic_map.txt: <code>vitamin = test</code> — mỗi map có xếp bài & ghim riêng.</p>
-        <div class="row">
-          <div><label>Chat ID</label><input id="t-src" type="number" placeholder="-100..." /></div>
-          <div><label>Topic ID</label><input id="t-topic" type="number" placeholder="5" /></div>
-          <div><label>Tên topic</label><input id="t-title" placeholder="vitamin" /></div>
-          <div><label>Map → lệnh kênh</label><input id="t-cmds" placeholder="test, pro" /></div>
-        </div>
-        <h3 style="font-size:0.9rem;margin:1rem 0 0.5rem">Xếp bài (độc lập map này)</h3>
-        <div class="row">
-          <div><label>/doneN (CPA)</label><input id="t-cpa" type="number" placeholder="1" /></div>
-          <div><label>Mode</label><select id="t-mode"><option value="normal">normal</option><option value="xdone">xdone</option><option value="zdone">zdone</option></select></div>
-          <div><label>Media/lượt</label><input id="t-media" type="number" placeholder="30" /></div>
-          <div><label>Ads/lượt</label><input id="t-ads" type="number" placeholder="2" /></div>
-          <div><label>RR media/vòng</label><input id="t-round" type="number" placeholder="8" /></div>
-          <div><label>xepbai</label><select id="t-xep"><option value="inherit">kế thừa global</option><option value="off">off (tự xếp)</option><option value="on">on (menu tay)</option></select></div>
-        </div>
-        <label>Whitelist lệnh (luôn menu tay, phân cách dấu phẩy)</label>
-        <input id="t-xep-wl" placeholder="sinh, preview" />
-        <label>Kênh no-ads</label><input id="t-no-ads" placeholder="real" />
-        <div class="pin-box">
-          <strong>📍 Bắt đầu lấy bài</strong>
-          <p class="hint">Mặc định: ghim mới nhất trong topic. Hoặc dán link tin bắt đầu chuẩn.</p>
-          <select id="t-pin-mode" style="margin-bottom:0.5rem">
-            <option value="latest">Ghim mới nhất (auto)</option>
-            <option value="link">Link tin cụ thể</option>
-          </select>
-          <input id="t-start-link" placeholder="https://t.me/c/1234567890/5/678" />
-        </div>
-        <div class="btn-row">
-          <button class="primary" onclick="saveTopic()">💾 Lưu map</button>
-          <button class="secondary" onclick="previewTopicForm()">👁 Xem trước xếp</button>
-        </div>
-      </div>
-      <div class="card">
-        <h2>Timeline các map đã cấu hình</h2>
+        <h2>Topic map — link bắt đầu</h2>
+        <p class="hint">
+          <strong>Bước 1:</strong> tab Import → upload <code>topic_map.txt</code><br>
+          <strong>Bước 2:</strong> mỗi topic dán link tin ghim/bắt đầu → <strong>Lưu link</strong> → <strong>Chạy</strong>
+        </p>
         <div id="topics-list"></div>
-      </div>
-      <div class="card">
-        <h2>Global xepbai (mặc định cho map inherit)</h2>
-        <div class="row">
-          <div><label>@xepbai</label><select id="g-xep-mode"><option value="off">off — tự xếp</option><option value="on">on — menu tay</option></select></div>
-          <div><label>@xepbaiwhite</label><input id="g-xep-wl" placeholder="sinh, real" /></div>
-        </div>
-        <button class="secondary" onclick="saveGlobalXep()">Lưu global xepbai</button>
       </div>
     </section>
 
@@ -325,16 +291,20 @@
 
     <section id="global" class="panel">
       <div class="card">
-        <h2>xepbai & web</h2>
+        <h2>Cài đặt chung</h2>
         <div class="row">
+          <div><label>@xepbai</label><select id="g-xep-mode"><option value="off">off — tự xếp</option><option value="on">on — menu tay</option></select></div>
+          <div><label>@xepbaiwhite</label><input id="g-xep-wl" placeholder="sinh, real" /></div>
           <div><label>Content/ads</label><input id="g-cpa" type="number" /></div>
           <div><label>Mode</label><select id="g-mode"><option value="normal">normal</option><option value="xdone">xdone</option><option value="zdone">zdone</option></select></div>
+        </div>
+        <div class="row">
           <div><label>Cảnh báo kho ≤</label><input id="g-threshold" type="number" /></div>
           <div><label>Web port</label><input id="g-port" type="number" /></div>
         </div>
         <label>Web token (bảo vệ dashboard)</label>
         <input id="g-web-token" type="password" placeholder="để trống = không khóa" />
-        <label><input type="checkbox" id="g-auto" /> Tự chạy khi detect topic đã map</label>
+        <label><input type="checkbox" id="g-auto" /> Tự chạy khi detect topic đã map (cần START)</label>
         <button class="primary" onclick="saveGlobal()">Lưu cài đặt</button>
       </div>
     </section>
@@ -478,55 +448,57 @@
       $("inventory-table").innerHTML = html;
     }
 
+    function topicRowId(t) {
+      const title = (t.topic_title || "t").replace(/[^a-zA-Z0-9_-]/g, "_");
+      return `link-${t.src_chat_id || 0}-${t.topic_id || 0}-${title}`;
+    }
+
     function renderTopics(list) {
       if (!list.length) {
-        $("topics-list").innerHTML = "<p style='color:var(--muted)'>Chưa có map — thêm form trên hoặc Import topic_map.txt</p>";
+        $("topics-list").innerHTML =
+          "<p style='color:var(--muted)'>Chưa có map — tab <strong>Import</strong> → upload <code>topic_map.txt</code></p>";
         return;
       }
       $("topics-list").innerHTML = list.map(t => {
-        const pin = t.start_link ? `link msg ${t.start_msg_id}` : (t.pin_mode === "link" ? "link" : "ghim mới nhất");
+        const rowId = topicRowId(t);
+        const name = t.topic_title || `topic ${t.topic_id || "?"}`;
+        const cmds = (t.mapped_cmds || []).join(", ") || "?";
+        const status = t.start_link
+          ? `<span class="badge ok">✓ msg ${t.start_msg_id || "?"}</span>`
+          : `<span class="badge warn">chưa có link</span>`;
+        const safeTitle = (t.topic_title || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
         return `
-        <div class="timeline-item">
-          <h3>${t.topic_title || t.topic_id} <span class="badge">${t.src_chat_id}:${t.topic_id}</span></h3>
-          <div style="font-size:0.85rem;color:var(--muted)">
-            → <strong>${(t.mapped_cmds||[]).join(", ") || "?"}</strong> ·
-            /done${t.default_cpa||"pin"} · ${t.default_mode||"normal"} ·
-            xepbai=${t.xepbai_mode||"inherit"} · ${pin}
+        <div class="topic-row">
+          <div class="topic-info">
+            <strong>${name}</strong> → /${cmds} ${status}
           </div>
-          <div style="font-size:0.8rem;color:var(--muted);margin-top:0.25rem">
-            media=${t.target_media_override||"pin"} · ads=${t.target_ads_override||"pin"} · no-ads=${(t.channels_no_ads||[]).join(",")||"—"}
-          </div>
-          <div class="btn-row" style="margin-top:0.5rem">
-            <button class="run" style="padding:0.35rem 0.7rem;font-size:0.8rem" onclick="runTopic(${t.src_chat_id},${t.topic_id},'${(t.topic_title||'').replace(/'/g,"")}')">▶ Chạy</button>
-            <button class="secondary" style="padding:0.35rem 0.7rem;font-size:0.8rem" onclick="xepPreview(${t.src_chat_id},${t.topic_id})">👁 Xếp bài</button>
-            <button class="secondary" style="padding:0.35rem 0.7rem;font-size:0.8rem" onclick="scanTopic(${t.src_chat_id},${t.topic_id})">📊 Scan</button>
-            <button class="secondary" style="padding:0.35rem 0.7rem;font-size:0.8rem" onclick="fillTopicForm(${t.src_chat_id},${t.topic_id})">✏️ Sửa</button>
+          <div class="topic-link-row">
+            <input id="${rowId}" type="text" placeholder="https://t.me/c/1234567890/5/678" value="${(t.start_link || "").replace(/"/g, "&quot;")}" />
+            <button class="primary" onclick="saveTopicLink(${t.src_chat_id || 0}, ${t.topic_id || 0}, '${safeTitle}')">💾 Lưu link</button>
+            <button class="run" onclick="saveTopicLink(${t.src_chat_id || 0}, ${t.topic_id || 0}, '${safeTitle}').then(r=>runTopic(r.src_chat_id,r.topic_id,r.topic_title||'${safeTitle}'))">▶ Chạy</button>
           </div>
         </div>`;
       }).join("");
     }
 
-    function fillTopicForm(src, topic) {
-      api("/topics").then(list => {
-        const t = list.find(x => x.src_chat_id == src && x.topic_id == topic);
-        if (!t) return;
-        $("t-src").value = t.src_chat_id;
-        $("t-topic").value = t.topic_id;
-        $("t-title").value = t.topic_title || "";
-        $("t-cmds").value = (t.mapped_cmds||[]).join(", ");
-        $("t-cpa").value = t.default_cpa || "";
-        $("t-mode").value = t.default_mode || "normal";
-        $("t-media").value = t.target_media_override || "";
-        $("t-ads").value = t.target_ads_override || "";
-        $("t-round").value = t.media_per_round || "";
-        $("t-xep").value = t.xepbai_mode || "inherit";
-        $("t-xep-wl").value = (t.xepbai_whitelist_cmds||[]).join(", ");
-        $("t-no-ads").value = (t.channels_no_ads||[]).join(", ");
-        $("t-pin-mode").value = t.pin_mode || "latest";
-        $("t-start-link").value = t.start_link || "";
-        document.querySelector('[data-tab="topics"]').click();
-        toast("Đã load map vào form");
+    async function saveTopicLink(src, topic, title) {
+      const rowId = topicRowId({ src_chat_id: src, topic_id: topic, topic_title: title });
+      const link = ($(rowId)?.value || "").trim();
+      if (!link) {
+        toast("Dán link tin bắt đầu trước");
+        return;
+      }
+      const r = await api("/topics/start-link", {
+        method: "POST",
+        body: JSON.stringify({
+          src_chat_id: src || null,
+          topic_id: topic || null,
+          topic_title: title || "",
+          link,
+        }),
       });
+      toast("Đã lưu link — tool lấy bài từ tin này");
+      return r;
     }
 
     function renderMeta(meta) {
@@ -719,48 +691,6 @@
       runAction("xep_preview", { src_chat_id: src, topic_id: topic });
     }
 
-    async function saveTopic() {
-      const body = {
-        src_chat_id: +$("t-src").value,
-        topic_id: +$("t-topic").value,
-        topic_title: $("t-title").value.trim(),
-        target_media_override: +$("t-media").value || null,
-        target_ads_override: +$("t-ads").value || null,
-        media_per_round: +$("t-round").value || null,
-        default_cpa: +$("t-cpa").value || null,
-        default_mode: $("t-mode").value,
-        xepbai_mode: $("t-xep").value,
-        xepbai_whitelist_cmds: $("t-xep-wl").value.split(",").map(s=>s.trim()).filter(Boolean),
-        mapped_cmds: $("t-cmds").value.split(",").map(s=>s.trim()).filter(Boolean),
-        channels_no_ads: $("t-no-ads").value.split(",").map(s=>s.trim()).filter(Boolean),
-        pin_mode: $("t-pin-mode").value,
-        start_link: $("t-start-link").value.trim(),
-        enabled: true,
-      };
-      await api("/topics", { method: "POST", body: JSON.stringify(body) });
-      if (body.start_link) {
-        await api(`/topics/${body.src_chat_id}/${body.topic_id}/start-link`, {
-          method: "POST", body: JSON.stringify({ link: body.start_link }),
-        });
-      } else if ($("t-pin-mode").value === "latest") {
-        await api(`/topics/${body.src_chat_id}/${body.topic_id}/start-link`, { method: "DELETE" });
-      }
-      toast("Đã lưu map + xếp bài");
-    }
-
-    async function previewTopicForm() {
-      await saveTopic();
-      xepPreview(+$("t-src").value, +$("t-topic").value);
-    }
-
-    async function saveGlobalXep() {
-      await api("/global", { method: "PATCH", body: JSON.stringify({
-        xepbai_mode: $("g-xep-mode").value,
-        xepbai_whitelist_cmds: $("g-xep-wl").value.split(",").map(s=>s.trim()).filter(Boolean),
-      })});
-      toast("Đã lưu global xepbai");
-    }
-
     function selectAllCh(on) { document.querySelectorAll(".all-ch").forEach(el => el.checked = on); }
 
     async function saveAllTask() {
@@ -819,6 +749,8 @@
     async function saveGlobal() {
       const wt = $("g-web-token").value.trim();
       const body = {
+        xepbai_mode: $("g-xep-mode").value,
+        xepbai_whitelist_cmds: $("g-xep-wl").value.split(",").map(s=>s.trim()).filter(Boolean),
         xepbai_off_default_cpa: +$("g-cpa").value || 1,
         xepbai_off_default_mode: $("g-mode").value,
         low_media_warn_threshold: +$("g-threshold").value || 50,

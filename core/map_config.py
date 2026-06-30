@@ -135,3 +135,83 @@ def clear_start_link(src_chat_id: int, topic_id: int) -> dict:
         "start_msg_id": None,
         "pin_mode": "latest",
     })
+
+
+def find_topic_entry(
+    *,
+    src_chat_id: int | None = None,
+    topic_id: int | None = None,
+    topic_title: str | None = None,
+) -> tuple[str | None, dict | None]:
+    """Tìm topic theo id hoặc tên (kể cả key title:... sau import)."""
+    cfg = load_auto_config()
+    topics = cfg.get("topic_sources") or {}
+
+    if src_chat_id is not None and topic_id is not None:
+        key = topic_key(src_chat_id, topic_id)
+        if key in topics:
+            return key, topics[key]
+
+    title = (topic_title or "").strip().lower()
+    if title:
+        title_key = f"title:{title}"
+        if title_key in topics:
+            return title_key, topics[title_key]
+        for k, t in topics.items():
+            if (t.get("topic_title") or "").strip().lower() == title:
+                return k, t
+
+    return None, None
+
+
+def apply_start_link_flexible(
+    link: str,
+    *,
+    src_chat_id: int | None = None,
+    topic_id: int | None = None,
+    topic_title: str | None = None,
+) -> dict:
+    """Set link bắt đầu — tự lấy chat/topic từ link nếu map chỉ có tên."""
+    from core.link_parser import parse_telegram_link
+    from core.config_store import load_auto_config, save_auto_config, topic_key
+
+    parsed = parse_telegram_link(link)
+    if not parsed or not parsed.get("msg_id"):
+        raise ValueError("Link không hợp lệ — dùng dạng https://t.me/c/1234567890/5/678")
+
+    old_key, entry = find_topic_entry(
+        src_chat_id=src_chat_id,
+        topic_id=topic_id or 0,
+        topic_title=topic_title,
+    )
+    entry = dict(entry or {})
+    if topic_title and not entry.get("topic_title"):
+        entry["topic_title"] = topic_title.strip()
+
+    new_src = parsed.get("src_chat_id") or entry.get("src_chat_id") or src_chat_id or 0
+    new_tid = parsed.get("topic_id")
+    if new_tid is None:
+        new_tid = entry.get("topic_id") or topic_id or 0
+
+    if src_chat_id and new_src and int(src_chat_id) not in (0, int(new_src)):
+        raise ValueError(f"Link thuộc chat {new_src}, khác cấu hình {src_chat_id}")
+    if topic_id and new_tid and int(topic_id) not in (0, int(new_tid)):
+        raise ValueError(f"Link thuộc topic {new_tid}, khác cấu hình {topic_id}")
+
+    entry.update({
+        "start_link": link.strip(),
+        "start_msg_id": parsed["msg_id"],
+        "cursor_msg_id": parsed["msg_id"],
+        "pin_mode": "link",
+        "src_chat_id": int(new_src),
+        "topic_id": int(new_tid),
+    })
+
+    cfg = load_auto_config()
+    topics = cfg.setdefault("topic_sources", {})
+    new_key = topic_key(int(new_src), int(new_tid))
+    if old_key and old_key != new_key:
+        topics.pop(old_key, None)
+    topics[new_key] = entry
+    save_auto_config(cfg)
+    return entry
