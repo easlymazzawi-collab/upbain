@@ -20,6 +20,7 @@ DEFAULT_RUNTIME: dict[str, Any] = {
     "last_run_result": "",
     "updated_at": 0,
     "log": [],
+    "waiting_topics": {},
 }
 
 
@@ -102,3 +103,30 @@ def mark_run_done(result: str = "ok") -> None:
         rt["current_task"] = ""
         rt["last_run_result"] = result
         _write(rt)
+
+
+def set_topic_waiting(key: str, *, title: str, have_media: int, need_media: int) -> None:
+    with _lock:
+        rt = _read()
+        rt.setdefault("waiting_topics", {})[key] = {
+            "title": title,
+            "have_media": have_media,
+            "need_media": need_media,
+            "updated_at": int(time.time()),
+        }
+        _write(rt)
+
+
+def clear_topic_waiting(key: str) -> None:
+    with _lock:
+        rt = _read()
+        wt = rt.get("waiting_topics") or {}
+        if key in wt:
+            wt.pop(key, None)
+            rt["waiting_topics"] = wt
+            _write(rt)
+
+
+def get_waiting_topics() -> dict:
+    with _lock:
+        return dict(_read().get("waiting_topics") or {})

@@ -2348,6 +2348,7 @@ from core.auto_runner import run_topic_batch, run_all_task, preview_topic_batch
 from core.bot_notify import send_bot_notify
 from core.runtime import append_log, mark_run_done, mark_run_start
 from core.scheduler import scheduler_loop
+from core.stock_watcher import stock_poll_loop
 from core.source_collector import collect_batch_from_topic
 from core.inventory import get_all_inventory
 
@@ -2443,6 +2444,23 @@ async def _try_auto_source_topic(src_id, topic_id, topic_title, *, manual=False)
         pick_next_rr=pick_next_rr,
     )
     asyncio.ensure_future(_after_regular())
+
+
+async def _stock_poll_run(kind, sid, tid, title):
+    """Retry topic/all khi đủ bài."""
+    if kind == "all_task":
+        return await run_all_task(
+            app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
+            build_and_forward_all=_all_build_and_forward,
+        )
+    return await run_topic_batch(
+        app, sid, tid, title or "",
+        notify=_notify,
+        build_and_forward=_source_build_and_forward,
+        find_cmds_for_topic=find_cmds_for_topic_title,
+        resolve_channels_by_cmd=resolve_channels_by_cmd,
+        pick_next_rr=pick_next_rr,
+    )
 
 
 async def _forward_seq_all_channels(ch_id, seq):
@@ -2723,6 +2741,7 @@ async def main():
     asyncio.ensure_future(task_auto_sync_folders())
     asyncio.ensure_future(task_auto_clean_dead())
     asyncio.ensure_future(scheduler_loop(_run_scheduled_cycle))
+    asyncio.ensure_future(stock_poll_loop(_stock_poll_run))
     asyncio.ensure_future(task_process_web_actions())
     _start_web_server()
 

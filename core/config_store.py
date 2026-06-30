@@ -30,6 +30,8 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
         "web_token": "",
         "auto_run_enabled": True,
         "system_armed": False,
+        "require_full_batch": True,
+        "stock_poll_interval_sec": 300,
         "schedule": {
             "enabled": False,
             "times": ["08:00", "20:00"],

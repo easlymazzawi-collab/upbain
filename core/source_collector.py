@@ -33,6 +33,8 @@ class CollectResult:
     params: dict[str, Any]
     remaining_posts: int
     remaining_media: int
+    cursor_msg_id: int | None = None
+    sufficient: bool = False
     warn: str | None = None
 
 
@@ -159,6 +161,8 @@ async def collect_batch_from_topic(
             pinned_text=pinned_text,
             params=resolve_batch_params(pinned_text, topic_cfg, global_cfg),
             remaining_posts=rem_p, remaining_media=rem_m,
+            cursor_msg_id=None,
+            sufficient=False,
             warn="⚠️ Không có tin ghim / cursor trong topic nguồn.",
         )
 
@@ -200,23 +204,34 @@ async def collect_batch_from_topic(
     if last_taken_id and next_pin is None:
         next_pin = await _find_next_post_id(client, src_chat_id, topic_id, last_taken_id, seen_groups)
 
-    rem_posts, rem_media = await _count_remaining(
-        client, src_chat_id, topic_id, next_pin or (last_taken_id or cursor_id)
-    )
-    update_after_scan(src_chat_id, topic_id, rem_posts, rem_media, next_pin, pinned_id)
+    sufficient = total_media >= target_media
+    if sufficient:
+        rem_posts, rem_media = await _count_remaining(
+            client, src_chat_id, topic_id, next_pin or (last_taken_id or cursor_id)
+        )
+        scan_cursor = next_pin or (last_taken_id or cursor_id)
+    else:
+        rem_posts, rem_media = await _count_remaining(
+            client, src_chat_id, topic_id, cursor_id
+        )
+        scan_cursor = cursor_id
 
-    warn = check_low_stock(src_chat_id, topic_id, total_media)
+    update_after_scan(src_chat_id, topic_id, rem_posts, rem_media, scan_cursor, pinned_id)
+
+    warn = check_low_stock(src_chat_id, topic_id, target_media if sufficient else total_media)
 
     return CollectResult(
         posts=posts,
         total_media=total_media,
         total_posts=len(posts),
         pinned_msg_id=pinned_id,
-        next_pin_msg_id=next_pin,
+        next_pin_msg_id=next_pin if sufficient else None,
         pinned_text=pinned_text,
         params=params,
         remaining_posts=rem_posts,
         remaining_media=rem_media,
+        cursor_msg_id=cursor_id,
+        sufficient=sufficient,
         warn=warn,
     )
 

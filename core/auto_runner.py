@@ -3,13 +3,14 @@
 import logging
 from typing import Any, Callable, Awaitable
 
-from core.config_store import get_topic_source, load_auto_config, save_auto_config, upsert_topic_source
+from core.config_store import get_topic_source, load_auto_config, save_auto_config, topic_key, upsert_topic_source
 from core.inventory import update_after_batch
 from core.link_parser import escape_html, msg_link
 from core.map_config import clear_start_link, resolve_xep_settings
 from core.pin_manager import advance_topic_pin
 from core.settings import CHANNELS_FILE
 from core.source_collector import collect_batch_from_topic, posts_to_content_refs
+from core.stock_watcher import mark_ready, mark_waiting, notify_wait, require_full_batch
 
 log = logging.getLogger("auto_runner")
 
@@ -66,22 +67,47 @@ async def run_topic_batch(
     )
 
     result = await collect_batch_from_topic(client, src_chat_id, topic_id, tcfg, g)
-    if result.warn:
+    params = result.params
+    target_media = int(params["target_media"])
+    tkey = topic_key(src_chat_id, topic_id)
+
+    if result.warn and result.sufficient:
         await notify(result.warn)
+
     if not result.posts:
+        mark_waiting(tkey, topic_title or str(topic_id), 0, target_media)
         pin_line = ""
         if result.pinned_msg_id:
             pin_line = f"\n📌 Ghim: {msg_link(src_chat_id, topic_id, result.pinned_msg_id)}"
         await _notify_html(
             notify,
-            f"⚠️ {_topic_header(topic_title, src_chat_id, topic_id)}\nKhông lấy được bài từ nguồn.{pin_line}",
+            f"⚠️ {_topic_header(topic_title, src_chat_id, topic_id)}\n"
+            f"Không lấy được bài từ nguồn — chờ bổ sung.{pin_line}",
         )
         return False
 
-    params = result.params
-    content_refs = posts_to_content_refs(result.posts, src_chat_id)
     n_posts = result.total_posts
     n_media = result.total_media
+
+    must_full = require_full_batch()
+    if must_full and not result.sufficient:
+        mark_waiting(tkey, topic_title or str(topic_id), n_media, target_media)
+        await notify_wait(
+            notify,
+            tkey,
+            f"⏸ {_topic_header(topic_title, src_chat_id, topic_id)}\n"
+            f"Chưa đủ bài: <b>{n_media}/{target_media}</b> media\n"
+            f"Thiếu {target_media - n_media} — <b>chờ bổ sung</b>, không up kênh\n"
+            f"📉 Kho từ cursor: {result.remaining_media} media / {result.remaining_posts} bài\n"
+            f"🔄 Tool tự thử lại mỗi {g.get('stock_poll_interval_sec') or 300}s",
+        )
+        return False
+
+    mark_ready(tkey)
+    if result.warn:
+        await notify(result.warn)
+
+    content_refs = posts_to_content_refs(result.posts, src_chat_id)
 
     mapped_cmds = tcfg.get("mapped_cmds") or find_cmds_for_topic(topic_title, src_chat_id)
     if not mapped_cmds:
@@ -218,11 +244,28 @@ async def run_all_task(
     }
 
     result = await collect_batch_from_topic(client, src_chat, src_topic, tcfg, cfg.get("global", {}))
+    g = cfg.get("global", {})
+    target_media = int(result.params.get("target_media") or 30)
+    tkey = topic_key(src_chat, src_topic)
+
     if not result.posts:
-        await notify("⚠️ /all task: không có bài trong topic nguồn.")
+        mark_waiting(tkey, task.get("source_title") or "/all", 0, target_media)
+        await notify("⚠️ /all task: không có bài — chờ bổ sung nguồn.")
         return False
 
-    xep = resolve_xep_settings(tcfg, cfg.get("global", {}), "/all")
+    if require_full_batch() and not result.sufficient:
+        mark_waiting(tkey, task.get("source_title") or "/all", result.total_media, target_media)
+        await notify_wait(
+            notify,
+            tkey,
+            f"⏸ <b>/all</b> · {msg_link(src_chat, src_topic, label='topic')}\n"
+            f"Chưa đủ: <b>{result.total_media}/{target_media}</b> media — chờ bổ sung",
+        )
+        return False
+
+    mark_ready(tkey)
+
+    xep = resolve_xep_settings(tcfg, g, "/all")
     use_ads = bool(task.get("use_ads", False))
 
     await _notify_html(
@@ -292,6 +335,7 @@ async def preview_topic_batch(
         "next_pin": result.next_pin_msg_id,
         "remaining_media": result.remaining_media,
         "remaining_posts": result.remaining_posts,
-        "pinned_text": result.pinned_text,
+        "sufficient": result.sufficient,
+        "cursor_msg_id": result.cursor_msg_id,
         "warn": result.warn,
     }

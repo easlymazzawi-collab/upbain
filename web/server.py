@@ -105,6 +105,8 @@ class GlobalIn(BaseModel):
     xepbai_whitelist_cmds: list[str] = []
     low_media_warn_threshold: int = 50
     auto_run_enabled: bool = True
+    require_full_batch: bool = True
+    stock_poll_interval_sec: int = 300
     system_armed: bool | None = None
     web_host: str = "0.0.0.0"
     web_port: int = 8080
@@ -152,7 +154,7 @@ def _snapshot() -> dict[str, Any]:
     return {
         "config": {**cfg, "global": safe_global},
         "inventory": load_inventory(),
-        "runtime": {**rt, "next_run_at": next_ts or rt.get("next_run_at", 0)},
+        "runtime": {**rt, "next_run_at": next_ts or rt.get("next_run_at", 0), "waiting_topics": rt.get("waiting_topics") or {}},
         "channels": channels,
         "folders": folders,
         "meta": {
