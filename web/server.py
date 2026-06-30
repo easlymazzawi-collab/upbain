@@ -23,7 +23,18 @@ from core.map_config import apply_start_link_flexible, apply_start_link_to_topic
 from core.runtime import append_log, get_runtime
 from core.scheduler import compute_next_run_ts
 from core.bot_notify import send_bot_notify
-from core.settings import CHANNELS_FILE, api_ready, web_token, system_armed, set_system_armed
+from core.settings import api_ready, web_token, system_armed, set_system_armed
+from core.channel_store import (
+    BRANCH_ADS,
+    BRANCH_PLAIN,
+    add_folder_link,
+    gen_topic_map,
+    load_channels,
+    load_folders,
+    load_topic_map_text,
+    save_topic_map_text,
+    set_channel_alias,
+)
 from core.web_actions import action_labels, list_pending_actions, queue_action
 
 WEB_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -84,6 +95,18 @@ class PlainTaskPatchIn(BaseModel):
     selected_channel_ids: list[int] | None = None
     skip_last_posts: int | None = None
     included_msg_ids: list[int] | None = None
+
+
+class AliasIn(BaseModel):
+    alias: str = ""
+
+
+class PlainFolderIn(BaseModel):
+    link: str
+
+
+class PlainTopicMapIn(BaseModel):
+    content: str
 
 
 class AllTaskIn(BaseModel):
@@ -160,14 +183,15 @@ def _snapshot() -> dict[str, Any]:
     safe_global = {k: v for k, v in g.items() if k not in ("api_hash", "bot_token")}
     safe_global["has_api_hash"] = bool(g.get("api_hash"))
     safe_global["has_bot_token"] = bool(g.get("bot_token"))
-    channels = []
-    if os.path.exists(CHANNELS_FILE):
-        with open(CHANNELS_FILE, "r", encoding="utf-8") as f:
-            channels = json.load(f)
-    folders = []
-    if os.path.exists("folders.json"):
-        with open("folders.json", "r", encoding="utf-8") as f:
-            folders = json.load(f)
+    channels = load_channels(BRANCH_ADS)
+    folders = load_folders(BRANCH_ADS)
+    plain_channels = load_channels(BRANCH_PLAIN)
+    plain_folders = load_folders(BRANCH_PLAIN)
+    plain_topic_map = ""
+    try:
+        plain_topic_map = load_topic_map_text(BRANCH_PLAIN)
+    except Exception:
+        pass
     all_task = cfg.get("all_task") or {}
     plain_task = cfg.get("plain_task") or {}
     return {
@@ -182,9 +206,14 @@ def _snapshot() -> dict[str, Any]:
         },
         "channels": channels,
         "folders": folders,
+        "plain_channels": plain_channels,
+        "plain_folders": plain_folders,
+        "plain_topic_map": plain_topic_map,
         "meta": {
             "channel_count": len(channels),
+            "plain_channel_count": len(plain_channels),
             "folder_count": len(folders),
+            "plain_folder_count": len(plain_folders),
             "topic_count": len(cfg.get("topic_sources") or {}),
             "userbot_ready": api_ready(),
             "system_armed": system_armed(),
@@ -465,10 +494,60 @@ async def patch_plain_task(body: PlainTaskPatchIn, _=Depends(_auth)):
 
 @app.get("/api/channels")
 async def api_channels(_=Depends(_auth)):
-    if os.path.exists(CHANNELS_FILE):
-        with open(CHANNELS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
+    return load_channels(BRANCH_ADS)
+
+
+@app.patch("/api/channels/{channel_id}/alias")
+async def patch_channel_alias(channel_id: int, body: AliasIn, _=Depends(_auth)):
+    try:
+        ch = set_channel_alias(channel_id, body.alias, BRANCH_ADS)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    append_log("info", f"Alias kênh {channel_id} → {body.alias or '(xóa)'}")
+    return ch
+
+
+@app.get("/api/plain/channels")
+async def api_plain_channels(_=Depends(_auth)):
+    return load_channels(BRANCH_PLAIN)
+
+
+@app.patch("/api/plain/channels/{channel_id}/alias")
+async def patch_plain_channel_alias(channel_id: int, body: AliasIn, _=Depends(_auth)):
+    try:
+        ch = set_channel_alias(channel_id, body.alias, BRANCH_PLAIN)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    append_log("info", f"Alias Up bài {channel_id} → {body.alias or '(xóa)'}")
+    return ch
+
+
+@app.get("/api/plain/folders")
+async def api_plain_folders(_=Depends(_auth)):
+    return load_folders(BRANCH_PLAIN)
+
+
+@app.post("/api/plain/folders")
+async def post_plain_folder(body: PlainFolderIn, _=Depends(_auth)):
+    try:
+        fd = add_folder_link(body.link, BRANCH_PLAIN)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    append_log("info", f"Thêm folder Up bài: {fd['slug']}")
+    action = queue_action("sync_plain_folders")
+    return {"ok": True, "folder": fd, "action": action, "message": "Đã lưu folder — userbot sync trong ~2s"}
+
+
+@app.get("/api/plain/topic-map")
+async def get_plain_topic_map(_=Depends(_auth)):
+    return {"content": load_topic_map_text(BRANCH_PLAIN)}
+
+
+@app.patch("/api/plain/topic-map")
+async def patch_plain_topic_map(body: PlainTopicMapIn, _=Depends(_auth)):
+    save_topic_map_text(body.content, BRANCH_PLAIN)
+    append_log("info", "Lưu plain_topic_map.txt")
+    return {"ok": True, "content": body.content}
 
 
 @app.post("/api/trigger/{src_chat_id}/{topic_id}")

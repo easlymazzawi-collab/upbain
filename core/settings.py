@@ -3,6 +3,9 @@
 from core.config_store import load_auto_config
 
 CHANNELS_FILE = "channels.json"
+PLAIN_CHANNELS_FILE = "plain_channels.json"
+PLAIN_FOLDERS_FILE = "plain_folders.json"
+PLAIN_TOPIC_MAP_TXT = "plain_topic_map.txt"
 
 
 def _global() -> dict:

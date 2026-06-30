@@ -57,6 +57,15 @@ from core.settings import (
     intermediate_chat_id as _intermediate_chat_id,
     web_port as _web_port,
 )
+from core.channel_store import (
+    BRANCH_ADS,
+    BRANCH_PLAIN,
+    invalidate_channels_cache as _cs_invalidate,
+    load_channels as _cs_load_channels,
+    load_folders as _cs_load_folders,
+    remember_folder as _cs_remember_folder,
+    save_channels as _cs_save_channels,
+)
 
 
 def get_intermediate_chat() -> int:
@@ -345,36 +354,23 @@ async def safe_send(text):
 
 _channels_cache = None
 
-def load_channels():
-    global _channels_cache
-    if _channels_cache is not None:
-        return list(_channels_cache)
-    if os.path.exists(CHANNELS_FILE):
-        with open(CHANNELS_FILE, "r", encoding="utf-8") as f:
-            _channels_cache = json.load(f)
-            return list(_channels_cache)
-    _channels_cache = []
-    return []
+def load_channels(branch: str = BRANCH_ADS):
+    return _cs_load_channels(branch)
 
-def save_channels(channels):
-    global _channels_cache
-    _channels_cache = list(channels)
-    with open(CHANNELS_FILE, "w", encoding="utf-8") as f:
-        json.dump(channels, f, ensure_ascii=False, indent=2)
+def save_channels(channels, branch: str = BRANCH_ADS):
+    _cs_save_channels(channels, branch)
 
+def invalidate_channels_cache(branch: str | None = None):
+    _cs_invalidate(branch)
 
-def invalidate_channels_cache():
-    global _channels_cache
-    _channels_cache = None
-
-async def remove_dead_channel(chat_id):
+async def remove_dead_channel(chat_id, branch: str = BRANCH_ADS):
     async with _channels_write_lock:
-        channels = load_channels()
+        channels = load_channels(branch)
         new_list = [ch for ch in channels if str(ch.get("id")) != str(chat_id)]
         if len(new_list) == len(channels):
             return None
         removed = next((ch for ch in channels if str(ch.get("id")) == str(chat_id)), None)
-        save_channels(new_list)
+        save_channels(new_list, branch)
         return (removed or {}).get("title", str(chat_id))
 
 def get_match_key(title: str) -> str:
@@ -795,30 +791,15 @@ def build_channel_commands(channels):
 # Folder persistence
 # ─────────────────────────────────────────────────────────
 
-def load_folders():
-    if os.path.exists(FOLDERS_FILE):
-        try:
-            with open(FOLDERS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
+def load_folders(branch: str = BRANCH_ADS):
+    return _cs_load_folders(branch)
 
-def save_folders(folders):
-    with open(FOLDERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(folders, f, ensure_ascii=False, indent=2)
+def save_folders(folders, branch: str = BRANCH_ADS):
+    from core.channel_store import save_folders as _save
+    _save(folders, branch)
 
-def remember_folder(slug, title=""):
-    folders = load_folders()
-    for fd in folders:
-        if fd.get("slug") == slug:
-            if title and not fd.get("title"):
-                fd["title"] = title
-                save_folders(folders)
-            return False
-    folders.append({"slug": slug, "title": title or slug, "added_at": int(time.time())})
-    save_folders(folders)
-    return True
+def remember_folder(slug, title="", branch: str = BRANCH_ADS):
+    return _cs_remember_folder(slug, title, branch)
 
 
 # ─────────────────────────────────────────────────────────
@@ -1568,7 +1549,7 @@ async def _fetch_folder_chats(slug):
     result = await app.invoke(raw_fn.chatlists.CheckChatlistInvite(slug=slug))
     return getattr(result, "title", slug) or slug, getattr(result, "chats", [])
 
-async def cmd_addfolder(link: str, silent: bool = False, remember: bool = True):
+async def cmd_addfolder(link: str, silent: bool = False, remember: bool = True, branch: str = BRANCH_ADS):
     import re as _re
     match = _re.search(r"addlist/([A-Za-z0-9_+=-]+)", link.strip())
     if not match:
@@ -1589,9 +1570,9 @@ async def cmd_addfolder(link: str, silent: bool = False, remember: bool = True):
         if not silent:
             await safe_send("⚠️ Folder trống.")
         if remember:
-            remember_folder(slug, folder_title)
+            remember_folder(slug, folder_title, branch)
         return 0
-    channels       = load_channels()
+    channels       = load_channels(branch)
     added, skipped = [], []
     for chat in chats:
         title    = getattr(chat, "title", "") or ""
@@ -1605,9 +1586,9 @@ async def cmd_addfolder(link: str, silent: bool = False, remember: bool = True):
             continue
         channels.append({"id": tg_id, "title": title, "username": username, "alias": ""})
         added.append(f"✅ #{len(channels)}. {title}" + (f" (@{username})" if username else ""))
-    save_channels(channels)
+    save_channels(channels, branch)
     if remember:
-        remember_folder(slug, folder_title)
+        remember_folder(slug, folder_title, branch)
     if not silent:
         out = [f"📁 Folder: {folder_title}"]
         if added:
@@ -1693,8 +1674,8 @@ async def _probe_channel(ch):
             return ("unknown", f"{type(e).__name__}: {str(e)[:80]}")
     return ("unknown", f"FloodWait persistent: {last_err}")
 
-async def cmd_checkchan(auto_clean: bool = False, silent: bool = False):
-    channels = load_channels()
+async def cmd_checkchan(auto_clean: bool = False, silent: bool = False, branch: str = BRANCH_ADS):
+    channels = load_channels(branch)
     if not channels:
         if not silent:
             await safe_send("📭 Chưa có kênh nào để check.")
@@ -1728,9 +1709,9 @@ async def cmd_checkchan(auto_clean: bool = False, silent: bool = False):
         await asyncio.sleep(0.5)
     keep = alive + [item["ch"] for item in unknown]
     if auto_clean:
-        save_channels(keep)
+        save_channels(keep, branch)
     else:
-        save_channels(keep + [item["ch"] for item in dead])
+        save_channels(keep + [item["ch"] for item in dead], branch)
     if silent:
         return len(dead)
     lines = [
@@ -1780,23 +1761,28 @@ async def cmd_checkchan(auto_clean: bool = False, silent: bool = False):
 async def task_auto_sync_folders():
     await asyncio.sleep(30)
     while True:
-        folders = load_folders()
-        if folders:
-            log("AUTO-SYNC", f"Bắt đầu sync {len(folders)} folder...")
+        for branch in (BRANCH_ADS, BRANCH_PLAIN):
+            folders = load_folders(branch)
+            if not folders:
+                continue
+            label = "Up bài" if branch == BRANCH_PLAIN else "ads"
+            log("AUTO-SYNC", f"Bắt đầu sync {len(folders)} folder ({label})...")
             total_added = 0
             for fd in folders:
                 slug = fd.get("slug")
                 if not slug:
                     continue
                 try:
-                    added = await cmd_addfolder(f"https://t.me/addlist/{slug}", silent=True, remember=False)
+                    added = await cmd_addfolder(
+                        f"https://t.me/addlist/{slug}", silent=True, remember=False, branch=branch,
+                    )
                     total_added += added or 0
                 except Exception as e:
-                    log("AUTO-SYNC", f"folder {slug}: {type(e).__name__}: {e}")
+                    log("AUTO-SYNC", f"folder {slug} ({label}): {type(e).__name__}: {e}")
                 await asyncio.sleep(2)
             if total_added > 0:
-                await safe_send(f"🔄 Auto-sync: thêm {total_added} kênh mới từ folder đã lưu.")
-            log("AUTO-SYNC", f"Hoàn tất — {'thêm ' + str(total_added) if total_added else 'không có kênh mới'}")
+                await safe_send(f"🔄 Auto-sync ({label}): thêm {total_added} kênh mới từ folder đã lưu.")
+            log("AUTO-SYNC", f"Hoàn tất ({label}) — {'thêm ' + str(total_added) if total_added else 'không có kênh mới'}")
         await asyncio.sleep(FOLDER_SYNC_INTERVAL_SEC)
 
 async def task_auto_clean_dead():
@@ -2653,26 +2639,31 @@ async def _run_scheduled_cycle(*, manual=False):
     await _notify("✅ Hoàn thành lượt auto theo lịch — chờ giờ chạy tiếp theo")
 
 
-async def _manual_sync_folders():
-    folders = load_folders()
+async def _manual_sync_folders(branch: str = BRANCH_ADS):
+    folders = load_folders(branch)
     if not folders:
-        await _notify("⚠️ Chưa có folder — dùng /addf trên Telegram hoặc import folders.json")
+        label = "Up bài" if branch == BRANCH_PLAIN else "ads"
+        await _notify(f"⚠️ Chưa có folder ({label}) — thêm trên web hoặc /addf trên Telegram")
         return 0
-    mark_run_start("Sync folder kênh")
+    mark_run_start("Sync folder kênh" + (" Up bài" if branch == BRANCH_PLAIN else ""))
     total_added = 0
     for fd in folders:
         slug = fd.get("slug")
         if not slug:
             continue
         try:
-            added = await cmd_addfolder(f"https://t.me/addlist/{slug}", silent=True, remember=False)
+            added = await cmd_addfolder(
+                f"https://t.me/addlist/{slug}", silent=True, remember=False, branch=branch,
+            )
             total_added += added or 0
         except Exception as e:
             log("SYNC", f"folder {slug}: {e}")
         await asyncio.sleep(2)
-    invalidate_channels_cache()
+    invalidate_channels_cache(branch)
     mark_run_done("ok")
-    await _notify(f"🔄 Sync folder xong — thêm {total_added} kênh mới, tổng {len(load_channels())} kênh")
+    pool = load_channels(branch)
+    label = "Up bài" if branch == BRANCH_PLAIN else "ads"
+    await _notify(f"🔄 Sync folder ({label}) — thêm {total_added} kênh mới, tổng {len(pool)} kênh")
     return total_added
 
 
@@ -2720,16 +2711,32 @@ async def _execute_web_action(action: dict):
             tid = int(params["topic_id"])
             await cmd_scan_inventory(sid, tid)
         elif atype == "sync_folders":
-            await _manual_sync_folders()
+            await _manual_sync_folders(BRANCH_ADS)
+        elif atype == "sync_plain_folders":
+            await _manual_sync_folders(BRANCH_PLAIN)
         elif atype == "check_channels":
             mark_run_start("Check kênh")
-            dead = await cmd_checkchan(auto_clean=True, silent=False)
-            invalidate_channels_cache()
+            dead = await cmd_checkchan(auto_clean=True, silent=False, branch=BRANCH_ADS)
+            invalidate_channels_cache(BRANCH_ADS)
             mark_run_done("ok")
             if dead:
-                await _notify(f"🧹 Đã xóa {dead} kênh chết — còn {len(load_channels())} kênh")
+                await _notify(f"🧹 Đã xóa {dead} kênh chết — còn {len(load_channels(BRANCH_ADS))} kênh")
             else:
-                await _notify(f"✅ Tất cả {len(load_channels())} kênh OK")
+                await _notify(f"✅ Tất cả {len(load_channels(BRANCH_ADS))} kênh OK")
+        elif atype == "check_plain_channels":
+            mark_run_start("Check kênh Up bài")
+            dead = await cmd_checkchan(auto_clean=True, silent=False, branch=BRANCH_PLAIN)
+            invalidate_channels_cache(BRANCH_PLAIN)
+            mark_run_done("ok")
+            if dead:
+                await _notify(f"🧹 Up bài: xóa {dead} kênh chết — còn {len(load_channels(BRANCH_PLAIN))} kênh")
+            else:
+                await _notify(f"✅ Up bài: {len(load_channels(BRANCH_PLAIN))} kênh OK")
+        elif atype == "gen_plain_topic_map":
+            from core.channel_store import gen_topic_map
+            n_kept, n_new = gen_topic_map(BRANCH_PLAIN)
+            await _notify(f"🗺 plain_topic_map.txt — giữ {n_kept} dòng, thêm {n_new} gợi ý")
+            append_log("info", f"Sinh plain_topic_map — {n_kept} map, {n_new} mới")
         elif atype == "xep_preview":
             sid = int(params["src_chat_id"])
             tid = int(params["topic_id"])
