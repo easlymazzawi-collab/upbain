@@ -168,7 +168,8 @@
         <h2>Topic map — link bắt đầu</h2>
         <p class="hint">
           <strong>Bước 1:</strong> tab Import → upload <code>topic_map.txt</code><br>
-          <strong>Bước 2:</strong> mỗi topic dán link tin ghim/bắt đầu → <strong>Lưu link</strong> → <strong>Chạy</strong>
+          <strong>Bước 2:</strong> mỗi topic dán link tin ghim/bắt đầu → <strong>Lưu link</strong> → <strong>Chạy</strong><br>
+          <strong>Số bài/map:</strong> đặt trên web hoặc trong file <code>vitamin = pro@5</code> / <code># 5 bài</code>
         </p>
         <div id="topics-list"></div>
       </div>
@@ -398,7 +399,8 @@
     const $ = id => document.getElementById(id);
     let channelCache = [];
     let channelSaveTimer = null;
-    let linkDrafts = {};
+    let mapPostSaveTimer = null;
+    let mapPostDrafts = {};
     let allLinkDirty = false;
     let plainChannelCache = [];
     let plainTopicMapDirty = false;
@@ -596,6 +598,14 @@
           linkDrafts[el.id] = el.value;
         }
       });
+      document.querySelectorAll("#topics-list .map-post-in").forEach(el => {
+        const src = el.dataset.src;
+        const tid = el.dataset.tid;
+        const cmd = (el.dataset.cmd || "").toLowerCase();
+        if (document.activeElement === el || el.value !== "") {
+          mapPostDrafts[`${src}:${tid}:${cmd}`] = el.value;
+        }
+      });
     }
 
     function topicLinkDisplay(rowId, saved) {
@@ -614,6 +624,11 @@
         const rowId = topicRowId(t);
         const name = t.topic_title || `topic ${t.topic_id || "?"}`;
         const cmds = (t.mapped_cmds || []).join(", ") || "?";
+        const limits = t.map_post_limits || {};
+        const limitBits = (t.mapped_cmds || []).map(c => {
+          const n = limits[String(c).toLowerCase()];
+          return n ? `/${c}:${n}b` : "";
+        }).filter(Boolean).join(" ");
         const displayLink = topicLinkDisplay(rowId, t.start_link);
         const savedLink = t.start_link || "";
         const status = savedLink && displayLink.trim() === savedLink
@@ -623,11 +638,22 @@
             : `<span class="badge warn">chưa có link</span>`);
         const safeTitle = (t.topic_title || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
         const escLink = displayLink.replace(/"/g, "&quot;");
+        const limitRow = (t.mapped_cmds || []).map(cmd => {
+          const key = String(cmd).toLowerCase();
+          const draft = mapPostDrafts[`${t.src_chat_id || 0}:${t.topic_id || 0}:${key}`];
+          const val = draft !== undefined ? draft : (limits[key] || "");
+          return `<label style="font-size:0.85rem;margin-right:0.75rem">/${cmd}
+            <input type="number" min="0" class="map-post-in" style="width:64px;margin:0 0.25rem"
+              data-src="${t.src_chat_id || 0}" data-tid="${t.topic_id || 0}" data-cmd="${cmd}"
+              value="${val}" placeholder="—" onchange="debounceMapPostLimit(this)" /> bài</label>`;
+        }).join("");
         return `
         <div class="topic-row">
           <div class="topic-info">
             <strong>${name}</strong> → /${cmds} ${status}
+            ${limitBits ? `<span class="badge ok" style="margin-left:0.35rem">${limitBits}</span>` : ""}
           </div>
+          ${limitRow ? `<div class="sub-grid" style="margin:0.5rem 0">${limitRow}</div>` : ""}
           <div class="topic-link-row">
             <input id="${rowId}" type="text" placeholder="https://t.me/c/1234567890/5/678" value="${escLink}" />
             <button class="primary" onclick="saveTopicLink(${t.src_chat_id || 0}, ${t.topic_id || 0}, '${safeTitle}')">💾 Lưu link</button>
@@ -656,6 +682,35 @@
       toast("Đã lưu link — tool lấy bài từ tin này");
       delete linkDrafts[rowId];
       return r;
+    }
+
+    function debounceMapPostLimit(el) {
+      const src = +el.dataset.src || 0;
+      const tid = +el.dataset.tid || 0;
+      const cmd = (el.dataset.cmd || "").toLowerCase();
+      mapPostDrafts[`${src}:${tid}:${cmd}`] = el.value;
+      clearTimeout(mapPostSaveTimer);
+      mapPostSaveTimer = setTimeout(() => saveMapPostLimits(src, tid), 450);
+    }
+
+    async function saveMapPostLimits(src, tid) {
+      const limits = {};
+      document.querySelectorAll("#topics-list .map-post-in").forEach(el => {
+        if (+el.dataset.src !== src || +el.dataset.tid !== tid) return;
+        const cmd = (el.dataset.cmd || "").toLowerCase();
+        const n = parseInt(el.value, 10);
+        if (cmd && n > 0) limits[cmd] = n;
+      });
+      try {
+        await api(`/topics/${src}/${tid}/post-limits`, {
+          method: "PATCH",
+          body: JSON.stringify({ map_post_limits: limits }),
+        });
+        Object.keys(mapPostDrafts).filter(k => k.startsWith(`${src}:${tid}:`)).forEach(k => delete mapPostDrafts[k]);
+        toast("Đã lưu số bài/map");
+      } catch (e) {
+        toast("Lỗi: " + (e.message || e));
+      }
     }
 
     function renderMeta(meta) {

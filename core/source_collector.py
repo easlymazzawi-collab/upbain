@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.inventory import check_low_stock, update_after_scan
+from core.map_limits import max_post_limit
 from core.pin_manager import get_pinned_message_id
 from core.topic_parser import resolve_batch_params
 
@@ -225,6 +226,7 @@ async def collect_batch_from_topic(
 
     params = resolve_batch_params(pinned_text, topic_cfg, global_cfg)
     target_media = target_media_override or params["target_media"]
+    target_posts = max_post_limit(topic_cfg) or params.get("target_posts")
     max_posts = int(topic_cfg.get("max_posts") or 100)
 
     posts: list[AtomicPost] = []
@@ -249,6 +251,9 @@ async def collect_batch_from_topic(
             if len(posts) >= max_posts:
                 next_pin = msg.id
                 break
+        elif target_posts and len(posts) >= int(target_posts):
+            next_pin = msg.id
+            break
         elif total_media >= target_media:
             next_pin = msg.id
             break
@@ -274,6 +279,8 @@ async def collect_batch_from_topic(
 
     if all_task_mode:
         sufficient = len(posts) > 0
+    elif target_posts:
+        sufficient = len(posts) >= int(target_posts)
     else:
         sufficient = total_media >= target_media
     if sufficient:
@@ -329,6 +336,11 @@ async def collect_batch_from_topic(
         sufficient=sufficient,
         warn=warn,
     )
+
+
+async def find_next_post_id(client, chat_id, topic_id, after_id, *, include_text=False):
+    """Tin kế tiếp sau after_id (dùng khi trim batch theo số bài map)."""
+    return await _find_next_post_id(client, chat_id, topic_id, after_id, set(), include_text=include_text)
 
 
 async def _find_next_post_id(client, chat_id, topic_id, after_id, already_seen_groups, *, include_text=False):

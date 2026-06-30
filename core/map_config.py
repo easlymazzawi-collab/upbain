@@ -6,6 +6,7 @@ import os
 from typing import Any
 
 from core.config_store import load_auto_config, topic_key, upsert_topic_source
+from core.map_limits import format_map_comment, format_map_rhs, normalize_post_limits, post_limit_for_cmd, trim_posts
 
 TOPIC_MAP_TXT = "topic_map.txt"
 
@@ -74,6 +75,10 @@ def sync_topic_to_map_file(entry: dict) -> None:
     if not title or not cmds:
         return
     cmd = cmds[0]
+    limits = normalize_post_limits(entry.get("map_post_limits"))
+    posts = limits.get(cmd.lower())
+    rhs = format_map_rhs(cmd, posts)
+    comment = format_map_comment(posts, title)
     src = entry.get("src_chat_id")
     tid = entry.get("topic_id")
     if src and tid:
@@ -99,7 +104,7 @@ def sync_topic_to_map_file(entry: dict) -> None:
             continue
         kept.append(ln)
 
-    kept.append(f"{key} = {cmd}  # {title}")
+    kept.append(f"{key} = {rhs}  # {comment}")
     with open(TOPIC_MAP_TXT, "w", encoding="utf-8") as f:
         f.write("\n".join(kept) + "\n")
 

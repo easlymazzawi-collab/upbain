@@ -75,6 +75,8 @@ class TopicSourceIn(BaseModel):
     use_ads: bool | None = None
     channels_no_ads: list[str] = []
     mapped_cmds: list[str] = []
+    map_post_limits: dict[str, int] = Field(default_factory=dict)
+    target_posts_override: int | None = None
     enabled: bool = True
     pin_mode: str = "latest"
     start_link: str = ""
@@ -95,6 +97,10 @@ class PlainTaskPatchIn(BaseModel):
     selected_channel_ids: list[int] | None = None
     skip_last_posts: int | None = None
     included_msg_ids: list[int] | None = None
+
+
+class TopicPostLimitsIn(BaseModel):
+    map_post_limits: dict[str, int] = Field(default_factory=dict)
 
 
 class AliasIn(BaseModel):
@@ -384,8 +390,25 @@ async def api_topics(_=Depends(_auth)):
 
 @app.post("/api/topics")
 async def post_topic(body: TopicSourceIn, _=Depends(_auth)):
-    entry = upsert_topic_source(body.src_chat_id, body.topic_id, body.model_dump())
+    from core.map_limits import normalize_post_limits
+    data = body.model_dump()
+    if data.get("map_post_limits"):
+        data["map_post_limits"] = normalize_post_limits(data["map_post_limits"])
+    entry = upsert_topic_source(body.src_chat_id, body.topic_id, data)
     sync_topic_to_map_file(entry)
+    return entry
+
+
+@app.patch("/api/topics/{src_chat_id}/{topic_id}/post-limits")
+async def patch_topic_post_limits(
+    src_chat_id: int, topic_id: int, body: TopicPostLimitsIn, _=Depends(_auth),
+):
+    from core.map_limits import normalize_post_limits
+    limits = normalize_post_limits(body.map_post_limits)
+    entry = upsert_topic_source(src_chat_id, topic_id, {"map_post_limits": limits})
+    sync_topic_to_map_file(entry)
+    title = entry.get("topic_title") or f"{src_chat_id}:{topic_id}"
+    append_log("info", f"Số bài/map {title}: {limits or '(mặc định media)'}")
     return entry
 
 

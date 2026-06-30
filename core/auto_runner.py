@@ -8,8 +8,8 @@ from core.inventory import update_after_batch
 from core.link_parser import escape_html, msg_link
 from core.map_config import clear_start_link, resolve_xep_settings
 from core.pin_manager import advance_topic_pin
-from core.settings import CHANNELS_FILE
-from core.source_collector import collect_batch_from_topic, posts_to_content_refs
+from core.map_limits import post_limit_for_cmd, trim_posts
+from core.source_collector import collect_batch_from_topic, find_next_post_id, posts_to_content_refs
 from core.stock_watcher import mark_ready, mark_waiting, notify_wait, require_full_batch
 from core.up_confirm import expire_pending_near_schedule, is_pending, offer_up_confirm, require_up_confirm
 
@@ -72,6 +72,17 @@ async def run_topic_batch(
     result = await collect_batch_from_topic(client, src_chat_id, topic_id, tcfg, g)
     params = result.params
     target_media = int(params["target_media"])
+
+    mapped_cmds = tcfg.get("mapped_cmds") or find_cmds_for_topic(topic_title, src_chat_id)
+    if not mapped_cmds:
+        mapped_cmds = find_cmds_for_topic(topic_title, src_chat_id)
+
+    picked = ""
+    post_lim: int | None = None
+    if mapped_cmds:
+        picked = pick_next_rr(topic_title, mapped_cmds) if len(mapped_cmds) > 1 else mapped_cmds[0]
+        post_lim = post_limit_for_cmd(tcfg, picked, topic_title=topic_title, src_id=src_chat_id)
+
     tkey = topic_key(src_chat_id, topic_id)
 
     if result.warn and result.sufficient:
@@ -89,18 +100,29 @@ async def run_topic_batch(
         )
         return False
 
-    n_posts = result.total_posts
+    posts = list(result.posts)
+    n_posts = len(posts)
     n_media = result.total_media
 
+    if post_lim:
+        sufficient = n_posts >= post_lim
+        need_label = f"{post_lim} bài"
+        need_count = post_lim
+    else:
+        sufficient = result.sufficient
+        need_label = f"{target_media} media"
+        need_count = target_media
+
     must_full = require_full_batch()
-    if must_full and not result.sufficient:
-        mark_waiting(tkey, topic_title or str(topic_id), n_media, target_media)
+    if must_full and not sufficient:
+        have = n_posts if post_lim else n_media
+        mark_waiting(tkey, topic_title or str(topic_id), have, need_count)
         await notify_wait(
             notify,
             tkey,
             f"⏸ {_topic_header(topic_title, src_chat_id, topic_id)}\n"
-            f"Chưa đủ bài: <b>{n_media}/{target_media}</b> media\n"
-            f"Thiếu {target_media - n_media} — <b>chờ bổ sung</b>, không up kênh\n"
+            f"Chưa đủ: <b>{have}/{need_count}</b> {need_label.split()[-1]}\n"
+            f"Thiếu {need_count - have} — <b>chờ bổ sung</b>, không up kênh\n"
             f"📉 Kho từ cursor: {result.remaining_media} media / {result.remaining_posts} bài\n"
             f"🔄 Tool tự thử lại mỗi {g.get('stock_poll_interval_sec') or 300}s",
         )
@@ -114,8 +136,8 @@ async def run_topic_batch(
             src_chat_id=src_chat_id,
             topic_id=topic_id,
             kind="topic",
-            have_media=n_media,
-            need_media=target_media,
+            have_media=n_media if not post_lim else n_posts,
+            need_media=need_count,
             header_html=_topic_header(topic_title, src_chat_id, topic_id),
         )
         if offered:
@@ -125,11 +147,6 @@ async def run_topic_batch(
     if result.warn:
         await notify(result.warn)
 
-    content_refs = posts_to_content_refs(result.posts, src_chat_id)
-
-    mapped_cmds = tcfg.get("mapped_cmds") or find_cmds_for_topic(topic_title, src_chat_id)
-    if not mapped_cmds:
-        mapped_cmds = find_cmds_for_topic(topic_title, src_chat_id)
     if not mapped_cmds:
         await _notify_html(
             notify,
@@ -139,8 +156,12 @@ async def run_topic_batch(
         )
         return False
 
+    posts = trim_posts(posts, post_lim)
+    n_posts = len(posts)
+    n_media = sum(p.media_count for p in posts)
+    content_refs = posts_to_content_refs(posts, src_chat_id)
+
     no_ads_cmds = set(x.lower() for x in tcfg.get("channels_no_ads", []))
-    picked = pick_next_rr(topic_title, mapped_cmds) if len(mapped_cmds) > 1 else mapped_cmds[0]
     channels = resolve_channels_by_cmd(picked)
     if channels_no_ads_filter and picked.lower() in no_ads_cmds:
         use_ads = False
@@ -163,11 +184,12 @@ async def run_topic_batch(
     if result.next_pin_msg_id:
         next_line = f"\n⏭ Ghim tiếp: {msg_link(src_chat_id, topic_id, result.next_pin_msg_id)}"
 
+    target_note = f"{post_lim} bài" if post_lim else f"{params['target_media']} media"
     await _notify_html(
         notify,
         f"🎯 {_topic_header(topic_title, src_chat_id, topic_id)}\n"
         f"→ /{escape_html(picked)}{rounds_note}\n"
-        f"📥 {n_posts} bài / {n_media} media (target {params['target_media']})\n"
+        f"📥 {n_posts} bài / {n_media} media (map: {target_note})\n"
         f"📦 Ads: {params['target_ads'] if xep['use_ads'] else 0} | /done{xep['default_cpa']} mode={xep['mode']}\n"
         f"📉 Kho còn: ~{result.remaining_media} media / {result.remaining_posts} bài"
         f"{pin_line}{next_line}",
@@ -193,15 +215,24 @@ async def run_topic_batch(
     if tcfg.get("start_msg_id") and tcfg.get("pin_mode") == "link":
         clear_start_link(src_chat_id, topic_id)
 
-    if result.next_pin_msg_id:
+    next_pin_id = result.next_pin_msg_id
+    if post_lim and posts and len(posts) < len(result.posts):
+        include_text = bool(tcfg.get("include_text_posts"))
+        found = await find_next_post_id(
+            client, src_chat_id, topic_id, posts[-1].msg_id, include_text=include_text,
+        )
+        if found:
+            next_pin_id = found
+
+    if next_pin_id:
         try:
             await advance_topic_pin(
                 client, src_chat_id, topic_id,
-                result.pinned_msg_id, result.next_pin_msg_id,
+                result.pinned_msg_id, next_pin_id,
             )
             upsert_topic_source(src_chat_id, topic_id, {
-                "cursor_msg_id": result.next_pin_msg_id,
-                "pinned_msg_id": result.next_pin_msg_id,
+                "cursor_msg_id": next_pin_id,
+                "pinned_msg_id": next_pin_id,
             })
         except Exception as e:
             log.warning("advance pin: %s", e)
@@ -210,12 +241,14 @@ async def run_topic_batch(
     update_after_batch(
         src_chat_id, topic_id,
         n_posts, n_media,
-        result.next_pin_msg_id, result.pinned_msg_id,
+        next_pin_id, result.pinned_msg_id,
     )
 
     done_lines = [f"✅ Xong · /{escape_html(picked)}"]
-    if result.next_pin_msg_id:
-        done_lines.append(f"⏭ {msg_link(src_chat_id, topic_id, result.next_pin_msg_id, label='ghim tiếp')}")
+    if post_lim:
+        done_lines[0] += f" ({n_posts} bài)"
+    if next_pin_id:
+        done_lines.append(f"⏭ {msg_link(src_chat_id, topic_id, next_pin_id, label='ghim tiếp')}")
     await _notify_html(notify, f"{_topic_header(topic_title, src_chat_id, topic_id)}\n" + "\n".join(done_lines))
     return True
 

@@ -51,10 +51,12 @@ def resolve_batch_params(
         or global_cfg.get("xepbai_off_default_cpa")
         or 1
     )
+    target_posts = topic_cfg.get("target_posts_override") or parsed.get("target_posts")
     media_per_round = topic_cfg.get("media_per_round") or target_media
     return {
         "target_media": int(target_media),
         "target_ads": int(target_ads),
+        "target_posts": int(target_posts) if target_posts else None,
         "default_cpa": int(default_cpa),
         "media_per_round": int(media_per_round),
         "mode": topic_cfg.get("default_mode") or global_cfg.get("xepbai_off_default_mode") or "normal",

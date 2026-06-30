@@ -21,6 +21,7 @@ from core.config_store import (
     upsert_topic_source,
 )
 from core.settings import CHANNELS_FILE
+from core.map_limits import parse_map_line, normalize_post_limits
 
 ROOT_FILES = {
     "channels.json": CHANNELS_FILE,
@@ -109,14 +110,20 @@ def parse_topic_map_text(text: str) -> list[dict[str, Any]]:
         s = line.strip()
         if not s or s.startswith("#"):
             continue
-        if "@" in s.split("=", 1)[0]:
+        body, _, comment = s.partition("#")
+        if "@" in body.split("=", 1)[0]:
             continue
-        sep = "=" if "=" in s else (":" if ":" in s else None)
+        sep = "=" if "=" in body else (":" if ":" in body else None)
         if not sep:
             continue
-        left, _, right = s.partition(sep)
-        left, right = left.strip(), right.strip().lstrip("/")
+        left, _, right = body.partition(sep)
+        left = left.strip()
+        right = right.strip()
         if not left or not right:
+            continue
+
+        cmd, post_n = parse_map_line(left, right, comment)
+        if not cmd:
             continue
 
         src_chat_id: int | None = None
@@ -142,11 +149,16 @@ def parse_topic_map_text(text: str) -> list[dict[str, Any]]:
             continue
         seen.add(key)
 
+        limits: dict[str, int] = {}
+        if post_n and post_n > 0:
+            limits[cmd.lower()] = int(post_n)
+
         entry: dict[str, Any] = {
             "src_chat_id": src_chat_id or 0,
             "topic_id": topic_id,
             "topic_title": topic_title,
-            "mapped_cmds": [right],
+            "mapped_cmds": [cmd],
+            "map_post_limits": limits,
             "enabled": True,
             "_imported_from": "topic_map.txt",
         }
@@ -160,8 +172,12 @@ def merge_topic_cmds(existing: dict, incoming: dict) -> dict:
         if c and c not in cmds:
             cmds.append(c)
     existing["mapped_cmds"] = cmds
+    limits = normalize_post_limits(existing.get("map_post_limits"))
+    limits.update(normalize_post_limits(incoming.get("map_post_limits")))
+    if limits:
+        existing["map_post_limits"] = limits
     for k, v in incoming.items():
-        if k == "mapped_cmds":
+        if k in ("mapped_cmds", "map_post_limits"):
             continue
         if v is None or v == "" or v == 0:
             continue
