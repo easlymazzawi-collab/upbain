@@ -18,7 +18,7 @@ from core.config_store import (
     upsert_topic_source,
 )
 from core.import_legacy import analyze_uploads, apply_import
-from core.runtime import append_log
+from core.runtime import append_log, get_runtime
 from core.scheduler import compute_next_run_ts
 from core.settings import CHANNELS_FILE, web_token
 
@@ -143,13 +143,17 @@ async def api_stream(
         while True:
             if await request.is_disconnected():
                 break
-            snap = _snapshot()
-            sig = json.dumps(snap, sort_keys=True, default=str)
-            if sig != last_sig:
-                last_sig = sig
-                yield f"data: {sig}\n\n"
-            else:
-                yield ": keepalive\n\n"
+            try:
+                snap = _snapshot()
+                sig = json.dumps(snap, sort_keys=True, default=str)
+                if sig != last_sig:
+                    last_sig = sig
+                    yield f"data: {sig}\n\n"
+                else:
+                    yield ": keepalive\n\n"
+            except Exception as e:
+                err = json.dumps({"error": str(e), "ts": int(time.time())})
+                yield f"data: {err}\n\n"
             await asyncio.sleep(2)
 
     return StreamingResponse(
