@@ -1,0 +1,506 @@
+================================================================================
+PROMPT DỰ ÁN — UpBain Research Platform v2
+================================================================================
+
+Mục đích prompt này: Hướng dẫn AI hoặc dev xây dựng/hoàn thiện hệ thống bằng
+cách PORT và KẾT HỢP code đã chạy được từ 2 repo — KHÔNG đoán mò, KHÔNG
+research web ngẫu nhiên.
+
+================================================================================
+0. BỐI CẢNH & MỤC TIÊU
+================================================================================
+
+Xây dựng Research Platform trên nền UpBain — tool Telegram userbot auto-forward
+kênh — thành hệ thống research archive theo ngày với bot trả user, VIP/Stars,
+share đua top, quản trị web.
+
+REPO NGUỒN (bắt buộc tham chiếu):
+
+  Repo                              Branch                              Vai trò
+  --------------------------------  ----------------------------------  --------------------------
+  easlymazzawi-collab/upbain        cursor/research-bot-platform-fe96   Userbot, web FastAPI,
+                                                                          orchestrator, archive index,
+                                                                          multi-bot, VIP, catalog,
+                                                                          share, rollup
+  easlymazzawi-collab/clender       cursor/fix-web-backup-access-2234   Membership gate, deep link
+                                                                          numeric token, _serve_album
+                                                                          delivery, backup ZIP +
+                                                                          Telegram upload, web backup API
+
+MỤC TIÊU SẢN PHẨM:
+  - 1 userbot up kênh (Pyrogram) + tối đa 10 bot token (aiogram) delivery user
+  - Archive = link + metadata trong SQLite — KHÔNG forward media vào forum backup
+  - User xem qua bot: bot copy/forward từ forum nguồn lúc xem (giữ premium emoji)
+  - Web admin chung: cấu hình, VIP/Stars/giftcode, ads alias, backup ZIP, restart bot
+  - Port pattern đã proven từ clender (membership, delivery fallback, backup scheduler)
+
+================================================================================
+1. QUYẾT ĐỊNH ĐÃ CHỐT (KHÔNG đổi trừ khi user yêu cầu)
+================================================================================
+
+  ID      Quyết định
+  ------  --------------------------------------------------------------------
+  A1      KHÔNG xóa ads trong chat user đã nhận; lần xem archive sau mới strip
+  A2      Archive = link + metadata; KHÔNG forward vào forum backup
+  A3      Stars: theo ngày + bán theo bộ media
+  B4      10 nguồn = 10 bot token (queue tuần tự)
+  B5      Web quản bot, forum admin chung, ON/OFF từng lớp, restart đơn/all
+  B6      1 userbot, nhiều admin web
+  B7      Hot-swap bot token + shared DB
+  C9      Mỗi bot 1 topic/ngày tên 30-06-2026 (format VN)
+  C10     Rollup 30 ngày: text mục lục, giữ không xóa
+  C12     1 lượt/ngày (config 2 lượt sau)
+  D15     Gửi tuần tự, chậm (>=1s/bài), chống spam
+  D16     Web VIP + giftcode + Stars (ngày/tháng/năm/vĩnh viễn)
+  D17     Forward/save policy tùy web; VIP được share
+  E18     Đóng góp tên qua forward admin; spam ban 24h->36h
+  F23-24  Ads alias; revoke chỉ archive index
+  F26     1 day nhiều kênh RR; recheck alias sau up
+  H34-37  Ref dedupe 1 user/click; leaderboard; VIP share
+  J       Tuần tự kênh->bot; broadcast Done confirm
+  K47     ZIP lên topic admin Telegram
+  M       Không watermark
+
+================================================================================
+2. KIẾN TRÚC 3 LỚP (tách ON/OFF độc lập)
+================================================================================
+
+  Backend chung: web FastAPI + SQLite + orchestrator
+  Index ngày · Users · VIP · Ads · Share · Queue
+
+         |                    |                    |
+         v                    v                    v
+   Lớp 1: Up kênh      Lớp 2: Archive index    Lớp 3: Bot delivery
+   (userbot Pyrogram)  (ghi link metadata)     (aiogram copy->user)
+   publish_channels    archive_index           bot_delivery
+
+  Lớp          Config key           Mô tả
+  -----------  -------------------  --------------------------------------------
+  Up kênh      publish_channels     Userbot forward RR nhiều kênh — độc lập archive
+  Archive      archive_index        Ghi src_chat_id, src_msg_id, album_msg_ids, seq
+  Bot delivery bot_delivery         User bấm ngày -> bot copy từ nguồn theo index
+
+  Thứ tự mặc định: kênh trước -> bot sau (channel_first: true)
+
+  FORUM MAPPING:
+
+  Forum              Mục đích
+  -----------------  ----------------------------------------------------------
+  Forum nguồn        Topic map cố định per bot (ads/plain tách branch)
+  Admin forum        Duyệt tên bộ, ZIP backup, forward contribution
+  Admin notify group Thông báo lượt auto (link kế, trạng thái) — thay pin nguồn
+  Membership channel Force-join trước dùng bot (clender pattern)
+
+================================================================================
+3. TECH STACK (theo code hiện có)
+================================================================================
+
+  Thành phần     Công nghệ              File entry
+  -------------  ---------------------  ------------------------------------
+  Userbot        Pyrogram + tgcrypto     tool__tauto_nostage.py
+  Bot delivery   aiogram 3.x             research_platform/bot_manager.py
+                                         research_platform/bot_handlers.py
+  Web            FastAPI + uvicorn + SSE web/server.py
+                                         web/static/index.html
+  DB             SQLite                  data/platform.db
+                                         research_platform/db.py
+  Config         JSON merge              data/auto_config.json
+                                         core/config_store.py
+  Timezone       Asia/Ho_Chi_Minh        research_platform/dates.py
+
+  LƯU Ý WINDOWS:
+  Package phải tên research_platform/ — KHÔNG đặt platform/ (shadow Python
+  stdlib -> Pyrogram crash). Entry script có bootstrap stdlib platform trước
+  import Pyrogram.
+
+================================================================================
+4. MAP MODULE — LẤY CODE TỪ ĐÂU
+================================================================================
+
+4.1 TỪ UPBAIN (cursor/research-bot-platform-fe96)
+---------------------------------------------------
+
+  tool__tauto_nostage.py          Entry: userbot + web + platform hooks + rollup + backup
+  research_platform/
+    db.py                         SQLite schema + connect
+    config.py                     platform.* trong auto_config.json
+    dates.py                      Ngày VN, topic_label "30-06-2026"
+    archive_index.py              days, day_items, publish/close, sync bots
+    hooks.py                      after_auto_forward -> index hook
+    orchestrator.py               Điều phối lượt auto
+    run_queue.py                  Queue 10 bot tuần tự
+    bot_manager.py                Start/stop/restart multi-bot aiogram
+    bot_handlers.py               Menu, /day, VIP, find, share, contribution
+    bot_delivery.py               Background task start bots
+    ads.py                        Alias ads, recheck, terminate
+    vip.py                        Plans, Stars, grant, can_access_archive
+    giftcode.py                   Tạo/redeem giftcode
+    catalog.py                    /find, contribution queue, spam ban
+    share.py                      ref codes, leaderboard, day share
+    membership.py                 Force-join (port clender)
+    backup.py                     ZIP + scheduler (port clender)
+    token_utils.py                Numeric deep link token (port clender)
+    rollup.py                     Rollup 30 ngày -> topic catalog
+  web/server.py                   /api/platform/* endpoints
+  web/static/index.html           Tab "Research Platform" (sub-tabs)
+  core/config_store.py            DEFAULT auto_config including platform.*
+  core/auto_runner.py             Logic up kênh (legacy, hook vào platform)
+
+4.2 TỪ CLENDER (cursor/fix-web-backup-access-2234) — PORT TRỰC TIẾP
+--------------------------------------------------------------------
+
+  Clender file                    UpBain target                    Pattern
+  ------------------------------  -------------------------------  -------------------------
+  bot/membership.py               research_platform/membership.py  Cache TTL 300s/60s,
+                                                                     fail-open, pending token
+  utils/token.py                  research_platform/token_utils.py generate_numeric_token(16)
+  bot/handlers.py _serve_album    bot_handlers._copy_item          copy->forward->per-msg
+  utils/backup.py                 research_platform/backup.py      SQLite safe copy, ZIP,
+                                                                     Telegram upload, scheduler
+  app.py /api/backup              web/server.py                    GET status, POST run,
+                                     /api/platform/backup           GET /download
+  run.py scheduler                tool__tauto_nostage.py             start_backup_scheduler()
+
+  KHÔNG port nguyên xi clender web sidebar — UpBain giữ dashboard v28, Research
+  Platform là tab con trong web hiện có.
+
+================================================================================
+5. LUỒNG NGHIỆP VỤ CHI TIẾT
+================================================================================
+
+5.1 LUỒNG 1 NGÀY (VN 00:00–23:59)
+---------------------------------
+
+  1. Trigger: Lịch auto / START web / /runtopic
+  2. Userbot collect batch từ forum nguồn (cursor/link, xếp sequence + ads alias)
+  3. Lớp 1: Forward RR nhiều kênh đích
+  4. Lớp 2: Ghi index — mỗi bài: seq, src_chat_id, src_msg_id, album_msg_ids[],
+     item_type, ads_alias
+  5. Notify admin group: bot/nguồn/ngày, link msg kế, deep link bot, trạng thái
+  6. Recheck ads aliases sau lượt up (recheck_all_ads_aliases)
+  7. Publish day (web hoặc auto) -> bot được phép trả user
+  8. User /today hoặc /day 30-06-2026:
+     - Check membership gate (clender)
+     - Check VIP nếu require_vip_for_archive
+     - Load day_items sorted by seq
+     - _copy_item từng bài (delay >=1s, resume từ last_seq_sent)
+     - Xong -> gửi link share t.me/bot?start=<numeric_token>
+
+5.2 DELIVERY FALLBACK (clender _serve_album — bắt buộc)
+-------------------------------------------------------
+
+  Thử 1: copy_messages / copy_message (batch hoặc đơn)
+         -> FloodWait: sleep, retry tối đa 3 lần
+  Thử 2: forward_messages / forward_message
+  Thử 3: từng message — copy_message, fail -> forward_message
+         -> sleep 0.2s giữa msg
+  Fail hết: báo user (bot chưa trong forum nguồn / file xóa / forward bị khóa)
+
+5.3 MEMBERSHIP GATE (clender)
+-----------------------------
+
+  Mọi handler user-facing:
+    -> gate_or_prompt()
+      -> admin bypass
+      -> không config channel -> pass
+      -> cache hit -> pass/block
+      -> get_chat_member -> member/admin/creator?
+        No  -> gửi nút Join + "Đã join — kiểm tra" (callback mem_recheck)
+              -> lưu pending action (start/day/...)
+        Yes -> tiếp tục handler
+  Config sai (bot không vào kênh): fail-open + log warning
+
+5.4 ADS ALIAS & REVOKE
+----------------------
+
+  - Admin đặt alias -> msg link nguồn (có thể đổi bài)
+  - Index ngày: item type=ads + ads_alias
+  - Chấm dứt HĐ: ads_contracts.active=false -> lần xem sau strip ads,
+    KHÔNG xóa tin user đã nhận
+  - /all tail batch = ads alias riêng (all_*)
+
+5.5 BACKUP (clender + UpBain export)
+------------------------------------
+
+  Scheduler: mỗi backup_interval_hours (default 24h), thread nền daemon.
+
+  ZIP contents:
+    backup_2026-06-30_1430.zip
+    ├── platform.db              SQLite safe copy (backup API)
+    ├── auto_config.json         tokens masked ***
+    ├── archive_index.json       export days + items
+    ├── bots.json                metadata, no tokens
+    └── MANIFEST.json            version, git hash, checksum
+
+  Telegram: gửi ZIP lên admin_forum_id / backup_forum_id,
+  topic admin_zip_topic_id (tạo topic "backup" nếu chưa có).
+
+  Web API:
+    GET  /api/platform/backup           -> status (scheduler, last file, skip_reasons)
+    POST /api/platform/backup           -> { "telegram": true/false } run now
+    GET  /api/platform/backup/download  -> tải ZIP
+
+================================================================================
+6. DATA MODEL SQLite
+================================================================================
+
+  bots            id, token (config), username, source_forum_id, source_topic_id,
+                  catalog_topic_id, branch (ads/plain), enabled, queue_order
+
+  days            bot_id, date_vn, topic_label (30-06-2026),
+                  status (draft/channel_done/indexed/published/closed), runs_count
+
+  day_items       day_id, seq, src_chat_id, src_msg_id, album_msg_ids (JSON),
+                  item_type (content/ads/all_tail_ads), ads_alias,
+                  channel_sent, indexed
+
+  ads_contracts   alias, src_msg_ids, src_chat_id, active, terminated_at
+
+  users           telegram_id, username, ref_code, tier, vip_until,
+                  spam_ban_until, allow_forward
+
+  vip_plans       plan_type, name, stars_price, duration_days, enabled
+
+  gift_codes      code, plan_id, max_uses, expires_at
+
+  share_refs      ref_code (numeric), day_id, creator_user_id, click_count
+
+  share_clicks    ref_code, user_id (unique per user — H34)
+
+  user_deliveries user_id, day_id, last_seq_sent (resume khi bot die giữa chừng)
+
+  contribution_queue  pending name proposals
+
+  rollup_indexes  bot_id, period, catalog text posted
+
+================================================================================
+7. BOT UX (aiogram)
+================================================================================
+
+  REPLY KEYBOARD:
+    [ Xem ngày ]     [ Tìm bộ ]
+    [ VIP / Stars ]  [ Mời bạn ]
+    [ Đóng góp tên ] [ Hướng dẫn ]
+
+  LỆNH:
+
+  Lệnh                      Hành vi
+  ------------------------  --------------------------------------------------
+  /start                    Onboarding + membership gate
+  /start ref_<code>         Ghi click share / đua top
+  /start <numeric_token>    Deep link xem ngày (clender style)
+  /start day_30-06-2026     Deep link ngày (legacy)
+  /today                    Ngày VN hôm nay nếu published
+  /day 30-06-2026           Parse nhiều format ngày
+  /find <keyword>           Tìm bộ media (có dấu VI)
+  /vip                      Trạng thái VIP + /buy_{plan_id} Stars
+  /redeem MÃ                Giftcode
+  /invite                   Link mời ?start=ref_<code>
+  /me                       Tier, VIP, forward policy
+  /leaderboard              Top share clicks
+
+  STARS CHECKOUT:
+    Invoice currency XTR, payload vip_plan_{id}
+    pre_checkout_query -> approve
+    successful_payment -> grant_vip(source="stars")
+
+================================================================================
+8. WEB ADMIN
+================================================================================
+
+  LAYOUT HIỆN TẠI (UpBain v28 + tab Research Platform):
+
+  Dashboard chính giữ nguyên (Điều khiển, Topic map, Kho, Lịch, Import...).
+
+  Tab Research Platform — sub-tabs:
+    Cấu hình   — ON/OFF 3 lớp, forum IDs, membership, backup, share event
+    Bots (10)  — token, forum/topic map, queue_order, restart
+    Archive    — danh sách ngày, Publish/Close
+    VIP & Stars — plans CRUD, grant tay
+    Giftcode   — tạo batch
+    Ads        — alias CRUD, terminate, recheck
+    Share      — leaderboard
+    Users      — list + VIP status
+
+  CONFIG FIELDS (auto_config.json -> platform.*):
+
+  {
+    "enabled": false,
+    "publish_channels": true,
+    "archive_index": true,
+    "bot_delivery": true,
+    "channel_first": true,
+    "delivery_delay_sec": 1.0,
+    "require_vip_for_archive": false,
+    "admin_forum_id": null,
+    "admin_zip_topic_id": null,
+    "admin_contrib_topic_id": null,
+    "admin_notify_group_id": null,
+    "membership_channel_id": null,
+    "membership_channel_username": "",
+    "force_join_check_sec": 300,
+    "force_join_message": "Bạn cần tham gia kênh...",
+    "backup_forum_id": null,
+    "backup_to_telegram": true,
+    "backup_interval_hours": 24,
+    "backup_keep_days": 7,
+    "share_event": { "enabled": false },
+    "bots": [ /* max 10 */ ]
+  }
+
+  API ENDPOINTS (/api/platform/*):
+
+  Method       Path                                    Mô tả
+  -----------  --------------------------------------  -------------------------
+  GET/PATCH    /api/platform                           Config + days + bot_status
+  POST         /api/platform/bots/restart                Restart 1 hoặc all bots
+  GET/POST/    /api/platform/vip/plans                   VIP plans
+  PATCH
+  POST         /api/platform/vip/grant                   Grant VIP tay
+  GET/POST     /api/platform/giftcodes                   Giftcode
+  GET/POST     /api/platform/ads                         Ads contracts
+  POST         /api/platform/ads/{alias}/terminate       Revoke
+  POST         /api/platform/ads/recheck                 Recheck aliases
+  GET          /api/platform/users                       User list
+  GET          /api/platform/share/leaderboard           Top share
+  GET          /api/platform/contributions               Pending names
+  POST         /api/platform/contributions/{id}/approve  Duyệt tên
+  POST         /api/platform/contributions/{id}/reject   Từ chối
+  GET/POST     /api/platform/rollup                      Rollup 30 ngày
+  POST         /api/platform/days/{id}/publish           Publish day
+  POST         /api/platform/days/{id}/close             Close day
+  GET          /api/platform/backup                      Backup status
+  POST         /api/platform/backup                      Run backup now
+  GET          /api/platform/backup/download             Tải ZIP
+
+  Auth: web token header (giống UpBain hiện tại).
+
+================================================================================
+9. ROADMAP IMPLEMENTATION (P0–P5) — TRẠNG THÁI
+================================================================================
+
+  Phase         Nội dung                                      Status
+  ------------  --------------------------------------------  ------
+  P0            SQLite, web config, index hook, 1 bot /day    DONE
+  P1            10 bot queue, restart, resume, ads recheck    DONE
+  P2            VIP plans, Stars, giftcode, web grant         DONE
+  P3            Contribution, /find, spam ban                 DONE
+  P4            Share ref, leaderboard, membership clender    DONE
+  P5            Rollup 30 ngày, web UI full                 DONE
+  Clender port  backup scheduler, delivery fallback, token    DONE
+
+  CÒN THIẾU SO VỚI VISION DOC (KHÔNG làm trừ khi user đổi DECISIONS):
+
+  - Web admin sidebar riêng như clender (web/templates/base.html)
+  - Forward media vào forum backup (A2 cấm)
+  - Xóa ads khỏi chat user cũ khi hết HĐ (A1 cấm)
+  - Bỏ pin userbot trên nguồn hoàn toàn (đang hybrid notify group)
+  - Broadcast VIP/all-user với confirm Done (J43 mở rộng)
+  - Production test 10 bot live + Stars end-to-end
+
+================================================================================
+10. HƯỚNG DẪN TRIỂN KHAI CHO AI/DEV
+================================================================================
+
+  BƯỚC 1 — Clone & branch:
+
+    git clone https://github.com/easlymazzawi-collab/upbain
+    git checkout cursor/research-bot-platform-fe96
+
+    git clone -b cursor/fix-web-backup-access-2234 \
+      https://github.com/easlymazzawi-collab/clender /tmp/clender-ref
+
+  BƯỚC 2 — Khi implement feature mới:
+
+    1. Tìm pattern tương ứng trong UpBain hoặc clender trước
+    2. Port/adapt — không viết lại từ đầu nếu đã có code chạy
+    3. Package tên research_platform/ — never platform/
+    4. Config lưu data/auto_config.json key platform.*
+    5. DB migrations trong research_platform/db.py init_db()
+    6. Web endpoint thêm vào web/server.py + UI tab Platform trong index.html
+    7. Hook userbot trong tool__tauto_nostage.py -> research_platform/hooks.py
+
+  BƯỚC 3 — Chạy & verify:
+
+    pip install -r requirements.txt
+    python tool__tauto_nostage.py
+    # Windows: run.bat hoặc python trực tiếp, xóa folder platform\ cũ
+
+  CHECKLIST VERIFY:
+
+    [ ] Web mở http://127.0.0.1:8080
+    [ ] Tab Telegram & Bot: api_id/hash, notify bot -> Restart -> START
+    [ ] Tab Research Platform: bật ON, bot token, forum IDs -> Lưu -> Restart bots
+    [ ] Auto up 1 lượt -> có row trong Archive tab
+    [ ] Bot /today gửi media đúng thứ tự
+    [ ] Membership: user chưa join -> bị chặn + nút Join
+    [ ] Backup: "Backup ngay" -> file local + (optional) Telegram topic
+    [ ] VIP Stars: /buy_1 -> thanh toán test
+
+================================================================================
+11. ANTI-PATTERNS (CẤM)
+================================================================================
+
+  1. Đoán mò API Telegram — copy từ clender _serve_album hoặc UpBain _copy_item
+  2. Đặt folder platform/ — crash Windows/Pyrogram
+  3. Forward media vào forum backup — vi phạm A2
+  4. Xóa ads trong chat user — vi phạm A1
+  5. Research web thay thế toàn bộ UpBain dashboard — chỉ mở rộng tab
+  6. Lưu bot token plain trong git — mask trong backup export
+  7. Bỏ qua FloodWait — phải sleep + retry, không skip bài
+  8. Tạo deep link không numeric cho share ngày mới — dùng token_utils
+
+================================================================================
+12. ACCEPTANCE CRITERIA (dự án coi là xong)
+================================================================================
+
+  1. Userbot up kênh + ghi index tự động sau mỗi lượt auto
+  2. Bot delivery copy/forward từ nguồn với fallback 3 tầng (clender)
+  3. Multi-bot (<=10) queue tuần tự, restart đơn/all từ web
+  4. VIP/Stars/giftcode hoạt động trên bot + web
+  5. Ads alias + revoke strip khi xem (không xóa chat cũ)
+  6. Share ref + leaderboard 1 click/user
+  7. Membership force-join với cache + recheck (clender)
+  8. Backup ZIP auto + manual + upload Telegram + web status/run/download
+  9. Rollup 30 ngày giữ text cũ
+  10. Windows chạy được (không shadow stdlib platform)
+  11. Resume delivery giữa chừng (user_deliveries)
+
+================================================================================
+13. PROMPT NGẮN GỌN (copy-paste cho AI agent)
+================================================================================
+
+Bạn là senior Python dev. Xây dựng/hoàn thiện UpBain Research Platform v2.
+
+NGUỒN CODE (bắt buộc đọc trước khi code):
+- upbain @ cursor/research-bot-platform-fe96 — userbot, web, research_platform/*
+- clender @ cursor/fix-web-backup-access-2234 — membership, _serve_album, backup, token
+
+QUY TẮC:
+- Archive = link+metadata SQLite, KHÔNG forward vào forum backup (A2)
+- KHÔNG xóa ads chat user cũ, chỉ strip lần xem sau (A1)
+- Package tên research_platform/, never platform/
+- Port clender patterns thay vì đoán mò Telegram API
+- 3 lớp ON/OFF: publish_channels, archive_index, bot_delivery
+- Delivery: copy->forward->per-msg, FloodWait retry 3x
+- Backup: clender scheduler + GET/POST /api/platform/backup
+- 10 bot token max, 1 userbot, config trong data/auto_config.json platform.*
+
+KHI XONG: commit, push cursor/research-bot-platform-fe96, update PR.
+Verify: auto up -> index -> bot /today -> membership -> backup -> VIP Stars.
+
+================================================================================
+LINK THAM CHIẾU
+================================================================================
+
+  UpBain:   https://github.com/easlymazzawi-collab/upbain
+            Branch: cursor/research-bot-platform-fe96
+
+  Clender:  https://github.com/easlymazzawi-collab/clender
+            Branch: cursor/fix-web-backup-access-2234
+
+  Docs:     docs/research-platform/ (ARCHITECTURE, DATA_MODEL, DECISIONS, ...)
+
+================================================================================
+END OF FILE
+================================================================================
