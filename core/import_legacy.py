@@ -287,11 +287,15 @@ def collect_workspace_files(root: str | None = None) -> list[tuple[str, bytes]]:
     try:
         for name in sorted(os.listdir(root)):
             low = name.lower()
+            path = os.path.join(root, name)
+            if not os.path.isfile(path):
+                continue
             if any(low.endswith(sfx) for sfx in SESSION_SUFFIXES):
-                path = os.path.join(root, name)
-                if os.path.isfile(path):
-                    with open(path, "rb") as f:
-                        out.append((name, f.read()))
+                with open(path, "rb") as f:
+                    out.append((name, f.read()))
+            elif low.endswith(".zip"):
+                with open(path, "rb") as f:
+                    out.append((name, f.read()))
     except OSError:
         pass
 
@@ -305,7 +309,8 @@ def scan_workspace(root: str | None = None) -> tuple[ImportPreview, dict[str, An
     preview = ImportPreview()
     if not files:
         preview.warnings.append(
-            f"Không thấy file import trong {root} — cần .env, channels.json, topic_map.txt, data/*.json..."
+            f"Không thấy file import trong {root} — cần .env, channels.json, topic_map.txt, "
+            f"data/*.json hoặc file .zip backup (ví dụ 26-06-30_0642.zip)..."
         )
         return preview, {}, [root]
 

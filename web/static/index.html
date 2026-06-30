@@ -193,6 +193,7 @@
           </details>
           <button class="primary" style="margin-top:0.5rem" onclick="addTopicMap()">➕ Thêm mapping</button>
         </div>
+        <p class="hint" style="margin-top:0.5rem">Chưa thấy mapping? Tab <strong>Import dữ liệu cũ</strong> → Quét folder tool → Import. Cần có <code>topic_map.txt</code> hoặc <code>data/auto_config.json</code> trong backup.</p>
         <div id="topics-list"></div>
       </div>
     </section>
@@ -352,8 +353,9 @@
       <div class="card">
         <h2>Import .env & file data cũ</h2>
         <p class="hint">
-          Giải nén file cũ <strong>cùng folder tool</strong> → bấm <strong>Quét folder tool</strong> bên dưới.
-          Hoặc kéo thả / chọn file từ máy (ZIP cũng được).
+          Giải nén file cũ <strong>cùng folder tool</strong> hoặc để nguyên file <strong>.zip</strong> backup
+          (ví dụ <code>26-06-30_0642.zip</code>) → bấm <strong>Quét folder tool</strong>.
+          Hoặc kéo thả / chọn file từ máy.
         </p>
         <div class="status-banner warn" id="import-disk-hint" style="display:none;margin-bottom:0.75rem"></div>
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem">
