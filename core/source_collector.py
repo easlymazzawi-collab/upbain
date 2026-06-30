@@ -7,26 +7,13 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from core.forum_topic import iter_topic_history, norm_topic_id
 from core.inventory import check_low_stock, update_after_scan
 from core.map_limits import collect_target_limits
 from core.pin_manager import get_pinned_message_id
 from core.topic_parser import resolve_batch_params
 
 log = logging.getLogger("source_collector")
-
-
-def _norm_topic_id(topic_id: int | None) -> int:
-    return 0 if topic_id is None else int(topic_id)
-
-
-def _forum_topic(topic_id: int | None) -> bool:
-    return _norm_topic_id(topic_id) != 0
-
-
-def _history_kw(topic_id: int | None) -> dict:
-    if _forum_topic(topic_id):
-        return {"reply_to_message_id": _norm_topic_id(topic_id)}
-    return {}
 
 
 @dataclass
@@ -96,7 +83,7 @@ async def _iter_topic_posts_from(
     seen_groups: set[str] = set()
     candidates = []
 
-    async for msg in client.get_chat_history(chat_id, limit=500, **_history_kw(topic_id)):
+    async for msg in iter_topic_history(client, chat_id, topic_id, limit=500):
         if msg.empty or msg.service:
             continue
         if start_msg_id > 0 and msg.id < start_msg_id:
@@ -137,7 +124,7 @@ async def _count_remaining(
     posts = 0
     media = 0
     seen_groups: set[str] = set()
-    async for msg in client.get_chat_history(chat_id, limit=1000, **_history_kw(topic_id)):
+    async for msg in iter_topic_history(client, chat_id, topic_id, limit=1000):
         if msg.empty or msg.service:
             continue
         if from_msg_id > 0 and msg.id < from_msg_id:
@@ -164,7 +151,7 @@ async def collect_batch_from_topic(
     *,
     dry_run: bool = False,
 ) -> CollectResult:
-    tid = _norm_topic_id(topic_id)
+    tid = norm_topic_id(topic_id)
     all_task_mode = bool(topic_cfg.get("_all_task_mode"))
     include_text = bool(topic_cfg.get("include_text_posts", all_task_mode))
 
@@ -350,7 +337,7 @@ async def find_next_post_id(client, chat_id, topic_id, after_id, *, include_text
 async def _find_next_post_id(client, chat_id, topic_id, after_id, already_seen_groups, *, include_text=False):
     found_after = False
     seen = set(already_seen_groups)
-    async for msg in client.get_chat_history(chat_id, limit=300, **_history_kw(topic_id)):
+    async for msg in iter_topic_history(client, chat_id, topic_id, limit=300):
         if msg.empty or msg.service:
             continue
         if msg.id == after_id:

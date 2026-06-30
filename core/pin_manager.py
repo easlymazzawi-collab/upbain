@@ -19,13 +19,6 @@ def _flood_wait_seconds(err: BaseException) -> int:
     return 3
 
 
-def _pinned_filter():
-    try:
-        from pyrogram import enums
-        return enums.MessagesFilter.PINNED
-    except Exception:
-        return "pinned"
-
 
 def _use_pin_bot() -> bool:
     from core.settings import pin_bot_token
@@ -34,20 +27,12 @@ def _use_pin_bot() -> bool:
 
 async def get_pinned_message_id(client, chat_id: int, topic_id: int | None) -> int | None:
     """Đọc tin ghim — cần userbot (Bot API không liệt kê ghim theo topic)."""
-    kw: dict = {}
-    if topic_id and int(topic_id) != 0:
-        kw["reply_to_message_id"] = int(topic_id)
-    filt = _pinned_filter()
+    from core.forum_topic import search_topic_pinned_message_id
+
     try:
-        async for msg in client.search_messages(
-            chat_id,
-            query="",
-            filter=filt,
-            limit=5,
-            **kw,
-        ):
-            if msg and not msg.empty:
-                return msg.id
+        pinned_id = await search_topic_pinned_message_id(client, chat_id, topic_id, limit=5)
+        if pinned_id:
+            return pinned_id
     except FloodWait as e:
         await asyncio.sleep(_flood_wait_seconds(e) + 1)
         return await get_pinned_message_id(client, chat_id, topic_id)
