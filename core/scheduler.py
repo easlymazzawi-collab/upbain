@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from core.config_store import load_auto_config
 from core.runtime import append_log, get_runtime, set_status
+from core.settings import system_armed
 
 log = logging.getLogger("scheduler")
 
@@ -79,7 +80,7 @@ async def scheduler_loop(run_cycle: RunCycleFn) -> None:
             if rt.get("status") != "running":
                 set_status(rt.get("status", "idle"), rt.get("current_task", ""), next_run_at=next_ts)
 
-            if enabled and times and not running:
+            if enabled and times and not running and system_armed():
                 try:
                     tz = ZoneInfo(tz_name)
                 except Exception:

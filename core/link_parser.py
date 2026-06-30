@@ -40,6 +40,43 @@ def parse_telegram_link(url: str) -> dict[str, Any] | None:
     return None
 
 
+def escape_html(text: str) -> str:
+    return (
+        (text or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def chat_id_to_tme_raw(chat_id: int) -> str:
+    """-1001234567890 → 1234567890 for t.me/c/ URLs."""
+    s = str(chat_id).strip()
+    if s.startswith("-100"):
+        return s[4:]
+    if s.startswith("-"):
+        return s[1:]
+    return s
+
+
+def msg_link(chat_id: int, topic_id: int | None = None, msg_id: int | None = None, label: str | None = None) -> str:
+    """HTML anchor t.me/c/... cho bot notify."""
+    raw = chat_id_to_tme_raw(chat_id)
+    if topic_id is not None and msg_id is not None:
+        url = f"https://t.me/c/{raw}/{topic_id}/{msg_id}"
+        text = label or f"msg {msg_id}"
+    elif msg_id is not None:
+        url = f"https://t.me/c/{raw}/{msg_id}"
+        text = label or f"msg {msg_id}"
+    elif topic_id is not None:
+        url = f"https://t.me/c/{raw}/{topic_id}"
+        text = label or f"topic {topic_id}"
+    else:
+        url = f"https://t.me/c/{raw}"
+        text = label or "chat"
+    return f'<a href="{url}">{escape_html(text)}</a>'
+
+
 def normalize_chat_id(raw: int | str) -> int:
     s = str(raw).strip()
     if s.startswith("-100"):

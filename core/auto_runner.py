@@ -3,14 +3,26 @@
 import logging
 from typing import Any, Callable, Awaitable
 
-from core.config_store import get_topic_source, load_auto_config, save_auto_config, topic_key, upsert_topic_source
+from core.config_store import get_topic_source, load_auto_config, save_auto_config, upsert_topic_source
 from core.inventory import update_after_batch
+from core.link_parser import escape_html, msg_link
 from core.map_config import clear_start_link, resolve_xep_settings
 from core.pin_manager import advance_topic_pin
 from core.settings import CHANNELS_FILE
 from core.source_collector import collect_batch_from_topic, posts_to_content_refs
 
 log = logging.getLogger("auto_runner")
+
+NotifyFn = Callable[..., Awaitable[None]]
+
+
+async def _notify_html(notify: NotifyFn, text: str) -> None:
+    await notify(text, parse_mode="HTML")
+
+
+def _topic_header(title: str, src_chat_id: int, topic_id: int) -> str:
+    name = escape_html(title or f"topic {topic_id}")
+    return f"📂 <b>{name}</b> · {msg_link(src_chat_id, topic_id, label='topic')}"
 
 
 async def run_topic_batch(
@@ -19,7 +31,7 @@ async def run_topic_batch(
     topic_id: int,
     topic_title: str,
     *,
-    notify: Callable[[str], Awaitable[None]],
+    notify: NotifyFn,
     build_and_forward: Callable[..., Awaitable[None]],
     find_cmds_for_topic: Callable[[str, int | None], list],
     resolve_channels_by_cmd: Callable[[str], list],
@@ -40,11 +52,30 @@ async def run_topic_batch(
     tcfg.setdefault("topic_title", topic_title)
     upsert_topic_source(src_chat_id, topic_id, tcfg)
 
+    cursor_msg = tcfg.get("start_msg_id") or tcfg.get("cursor_msg_id")
+    start_bits = []
+    if tcfg.get("start_link"):
+        start_bits.append(f"🔗 Start: {msg_link(src_chat_id, topic_id, tcfg.get('start_msg_id'), label='link')}")
+    elif cursor_msg:
+        start_bits.append(f"📍 Cursor: {msg_link(src_chat_id, topic_id, cursor_msg)}")
+
+    await _notify_html(
+        notify,
+        f"▶️ Bắt đầu\n{_topic_header(topic_title, src_chat_id, topic_id)}"
+        + (f"\n{' · '.join(start_bits)}" if start_bits else ""),
+    )
+
     result = await collect_batch_from_topic(client, src_chat_id, topic_id, tcfg, g)
     if result.warn:
         await notify(result.warn)
     if not result.posts:
-        await notify(f"⚠️ Topic '{topic_title}': không lấy được bài từ nguồn.")
+        pin_line = ""
+        if result.pinned_msg_id:
+            pin_line = f"\n📌 Ghim: {msg_link(src_chat_id, topic_id, result.pinned_msg_id)}"
+        await _notify_html(
+            notify,
+            f"⚠️ {_topic_header(topic_title, src_chat_id, topic_id)}\nKhông lấy được bài từ nguồn.{pin_line}",
+        )
         return False
 
     params = result.params
@@ -56,9 +87,11 @@ async def run_topic_batch(
     if not mapped_cmds:
         mapped_cmds = find_cmds_for_topic(topic_title, src_chat_id)
     if not mapped_cmds:
-        await notify(
-            f"📥 Lấy {n_posts} bài / {n_media} media từ topic '{topic_title}'\n"
-            f"⚠️ Chưa map kênh — cấu hình trên web hoặc topic_map.txt"
+        await _notify_html(
+            notify,
+            f"📥 {_topic_header(topic_title, src_chat_id, topic_id)}\n"
+            f"Lấy {n_posts} bài / {n_media} media\n"
+            f"⚠️ Chưa map kênh — cấu hình trên web hoặc topic_map.txt",
         )
         return False
 
@@ -79,11 +112,21 @@ async def run_topic_batch(
     if len(mapped_cmds) > 1 and media_per_round:
         rounds_note = f" | ~{media_per_round} media/lượt RR"
 
-    await notify(
-        f"🎯 Auto topic '{topic_title}' → /{picked}{rounds_note}\n"
-        f"📥 Nguồn: {n_posts} bài / {n_media} media (target {params['target_media']})\n"
+    pin_line = ""
+    if result.pinned_msg_id:
+        pin_line = f"\n📌 Ghim: {msg_link(src_chat_id, topic_id, result.pinned_msg_id)}"
+    next_line = ""
+    if result.next_pin_msg_id:
+        next_line = f"\n⏭ Ghim tiếp: {msg_link(src_chat_id, topic_id, result.next_pin_msg_id)}"
+
+    await _notify_html(
+        notify,
+        f"🎯 {_topic_header(topic_title, src_chat_id, topic_id)}\n"
+        f"→ /{escape_html(picked)}{rounds_note}\n"
+        f"📥 {n_posts} bài / {n_media} media (target {params['target_media']})\n"
         f"📦 Ads: {params['target_ads'] if xep['use_ads'] else 0} | /done{xep['default_cpa']} mode={xep['mode']}\n"
         f"📉 Kho còn: ~{result.remaining_media} media / {result.remaining_posts} bài"
+        f"{pin_line}{next_line}",
     )
 
     slot_data: dict[str, Any] = {
@@ -103,7 +146,7 @@ async def run_topic_batch(
 
     await build_and_forward(slot_data, channels, picked)
 
-    if topic_cfg.get("start_msg_id") and topic_cfg.get("pin_mode") == "link":
+    if tcfg.get("start_msg_id") and tcfg.get("pin_mode") == "link":
         clear_start_link(src_chat_id, topic_id)
 
     if result.next_pin_msg_id:
@@ -125,6 +168,11 @@ async def run_topic_batch(
         n_posts, n_media,
         result.next_pin_msg_id, result.pinned_msg_id,
     )
+
+    done_lines = [f"✅ Xong · /{escape_html(picked)}"]
+    if result.next_pin_msg_id:
+        done_lines.append(f"⏭ {msg_link(src_chat_id, topic_id, result.next_pin_msg_id, label='ghim tiếp')}")
+    await _notify_html(notify, f"{_topic_header(topic_title, src_chat_id, topic_id)}\n" + "\n".join(done_lines))
     return True
 
 
@@ -177,10 +225,12 @@ async def run_all_task(
     xep = resolve_xep_settings(tcfg, cfg.get("global", {}), "/all")
     use_ads = bool(task.get("use_ads", False))
 
-    await notify(
-        f"📦 ALL: {result.total_posts} bài / {result.total_media} media → {len(channels)} kênh\n"
-        f"   Xếp: /done{xep['default_cpa']} mode={task.get('xep_mode', 'normal')} "
-        f"ads={'có' if use_ads else 'không'}"
+    await _notify_html(
+        notify,
+        f"📦 <b>/all</b> · {msg_link(src_chat, src_topic, label='topic')}\n"
+        f"{result.total_posts} bài / {result.total_media} media → {len(channels)} kênh\n"
+        f"Xếp: /done{xep['default_cpa']} mode={task.get('xep_mode', 'normal')} "
+        f"ads={'có' if use_ads else 'không'}",
     )
 
     if build_and_forward_all:

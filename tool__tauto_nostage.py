@@ -943,7 +943,8 @@ async def _auto_process_batch(slot, n, gen=None):
         tid = slot.get("topic_id")
         sid = slot.get("topic_src_id")
         if sid and tid and load_auto_config().get("global", {}).get("auto_run_enabled", True):
-            await _try_auto_source_topic(sid, tid, slot.get("topic_title") or "")
+            if system_armed():
+                await _try_auto_source_topic(sid, tid, slot.get("topic_title") or "")
             return
 
         if not slot["ads_msgs"]:
@@ -2254,12 +2255,12 @@ async def handler(client, msg: Message):
             try:
                 sid, tid = int(parts[1]), int(parts[2])
                 title = parts[3] if len(parts) > 3 else ""
-                await _try_auto_source_topic(sid, tid, title)
+                await _try_auto_source_topic(sid, tid, title, manual=True)
             except ValueError:
                 await safe_send("❌ Dùng: /runtopic <chat_id> <topic_id> [tên]")
         elif slot.get("topic_src_id") and slot.get("topic_id"):
             await _try_auto_source_topic(
-                slot["topic_src_id"], slot["topic_id"], slot.get("topic_title") or ""
+                slot["topic_src_id"], slot["topic_id"], slot.get("topic_title") or "", manual=True
             )
         else:
             await safe_send("❌ Chưa có topic. Dùng: /runtopic <chat_id> <topic_id>")
@@ -2342,6 +2343,7 @@ async def handler(client, msg: Message):
 # ─────────────────────────────────────────────────────────
 
 from core.config_store import get_topic_source, load_auto_config, upsert_topic_source
+from core.settings import system_armed, set_system_armed
 from core.auto_runner import run_topic_batch, run_all_task, preview_topic_batch
 from core.bot_notify import send_bot_notify
 from core.runtime import append_log, mark_run_done, mark_run_start
@@ -2394,10 +2396,10 @@ async def _all_build_and_forward(slot_data, channels):
         await forward_sequence_to_channel(ch["id"], list(seq))
 
 
-async def _notify(text):
+async def _notify(text, parse_mode=None):
     level = "error" if "❌" in text else ("warn" if ("⚠️" in text or "HẾT" in text or "📉" in text) else "info")
-    append_log(level, text)
-    sent = await send_bot_notify(text)
+    append_log(level, text.replace("<b>", "").replace("</b>", "").replace("<a href=", " ["))
+    sent = await send_bot_notify(text, parse_mode=parse_mode)
     if not sent:
         try:
             await safe_send(text)
@@ -2405,9 +2407,12 @@ async def _notify(text):
             pass
 
 
-async def _try_auto_source_topic(src_id, topic_id, topic_title):
+async def _try_auto_source_topic(src_id, topic_id, topic_title, *, manual=False):
     cfg = load_auto_config()
-    if not cfg.get("global", {}).get("auto_run_enabled", True):
+    g = cfg.get("global", {})
+    if not g.get("auto_run_enabled", True):
+        return
+    if not manual and not system_armed():
         return
     key_src = get_topic_source(src_id, topic_id)
     if not key_src and not find_cmds_for_topic_title(topic_title, src_id):
@@ -2456,16 +2461,20 @@ async def _run_all_topics_only():
         if not sid or not tid:
             continue
         mark_run_start(f"Topic {title or tid}")
-        await _try_auto_source_topic(sid, tid, title)
+        await _try_auto_source_topic(sid, tid, title, manual=True)
         ran += 1
     return ran
 
 
-async def _run_scheduled_cycle():
+async def _run_scheduled_cycle(*, manual=False):
     """Chạy tất cả topic nguồn + /all task theo lịch web."""
     cfg = load_auto_config()
     g = cfg.get("global", {})
     sch = g.get("schedule") or {}
+
+    if not manual and not system_armed():
+        await _notify("⏸️ Lịch auto: chưa bấm START trên web.")
+        return
 
     if not g.get("auto_run_enabled", True):
         await _notify("⏸️ Lịch auto: auto_run đang tắt trên web.")
@@ -2522,7 +2531,7 @@ async def _execute_web_action(action: dict):
 
     try:
         if atype == "run_full_cycle":
-            await _run_scheduled_cycle()
+            await _run_scheduled_cycle(manual=True)
         elif atype == "run_all_topics":
             mark_run_start("Tất cả topic nguồn")
             n = await _run_all_topics_only()
@@ -2541,7 +2550,7 @@ async def _execute_web_action(action: dict):
             tid = int(params["topic_id"])
             title = params.get("topic_title") or ""
             mark_run_start(f"Topic {title or tid}")
-            await _try_auto_source_topic(sid, tid, title)
+            await _try_auto_source_topic(sid, tid, title, manual=True)
             mark_run_done("ok")
         elif atype == "scan_topic":
             sid = int(params["src_chat_id"])
@@ -2608,17 +2617,22 @@ async def task_process_web_actions():
 
 
 async def cmd_scan_inventory(src_id: int, topic_id: int):
+    from core.link_parser import msg_link
+
     cfg = load_auto_config()
     tcfg = get_topic_source(src_id, topic_id) or {"enabled": True}
+    title = tcfg.get("topic_title") or str(topic_id)
     result = await collect_batch_from_topic(app, src_id, topic_id, tcfg, cfg.get("global", {}))
+    pin = msg_link(src_id, topic_id, result.pinned_msg_id) if result.pinned_msg_id else "—"
+    nxt = msg_link(src_id, topic_id, result.next_pin_msg_id) if result.next_pin_msg_id else "—"
     msg = (
-        f"📊 Scan {src_id}:{topic_id}\n"
-        f"  Ghim: {result.pinned_msg_id} | cursor → {result.next_pin_msg_id}\n"
+        f"📊 Scan <b>{title}</b> · {msg_link(src_id, topic_id, label='topic')}\n"
+        f"  Ghim: {pin} | cursor → {nxt}\n"
         f"  Kho: {result.remaining_media} media / {result.remaining_posts} bài\n"
         f"  Target: {result.params.get('target_media')} media / {result.params.get('target_ads')} ads\n"
         + (f"  {result.warn}" if result.warn else "")
     )
-    await _notify(msg)
+    await _notify(msg, parse_mode="HTML")
 
 
 def _start_web_server():
@@ -2713,11 +2727,15 @@ async def main():
     _start_web_server()
 
     await _notify(
-        "🤖 Userbot v27 đã khởi động!\n"
+        "🤖 Userbot v27 online\n"
         f"📡 {n_channels} kênh • 📁 {n_folders} folder\n"
         f"🌐 Web: http://127.0.0.1:{web_port}\n"
-        "🔔 Thông báo qua bot token (cấu hình web)\n"
-        "⏰ Lịch auto hằng ngày — set giờ trên web\n"
+        + (
+            "✅ Đã START — auto + lịch sẵn sàng\n"
+            if system_armed()
+            else "⏸ Chờ START trên web — chưa chạy auto\n"
+        )
+        + "🔔 Thông báo qua bot token\n"
         "Gõ /help để xem hướng dẫn."
     )
 

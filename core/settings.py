@@ -49,3 +49,16 @@ def notify_chat_id() -> int | None:
 
 def api_ready() -> bool:
     return bool(api_id() and api_hash())
+
+
+def system_armed() -> bool:
+    return bool(_global().get("system_armed", False))
+
+
+def set_system_armed(armed: bool) -> bool:
+    from core.config_store import load_auto_config, save_auto_config
+
+    cfg = load_auto_config()
+    cfg.setdefault("global", {})["system_armed"] = bool(armed)
+    save_auto_config(cfg)
+    return bool(armed)

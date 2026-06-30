@@ -61,6 +61,11 @@
     .status-banner { padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.9rem; }
     .status-banner.warn { background: #422006; border: 1px solid var(--warn); color: var(--warn); }
     .status-banner.ok { background: #064e3b; border: 1px solid var(--accent2); color: var(--accent2); }
+    .status-banner.armed { background: #1e3a5f; border: 1px solid var(--accent); color: #93c5fd; }
+    .start-stop { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+    .btn-start { background: var(--accent2); color: #fff; border: none; padding: 1rem 2rem; border-radius: 12px; cursor: pointer; font-weight: 700; font-size: 1.1rem; min-width: 180px; }
+    .btn-stop { background: var(--danger); color: #fff; border: none; padding: 1rem 2rem; border-radius: 12px; cursor: pointer; font-weight: 700; font-size: 1.1rem; min-width: 140px; }
+    .btn-start:disabled, .btn-stop:disabled { opacity: 0.45; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -92,15 +97,22 @@
 
     <section id="dashboard" class="panel active">
       <div id="boot-banner" class="status-banner warn" style="display:none"></div>
+      <div id="armed-banner" class="status-banner warn" style="display:none"></div>
+      <div class="start-stop">
+        <button id="btn-start" class="btn-start" onclick="systemStart()">▶ START</button>
+        <button id="btn-stop" class="btn-stop" onclick="systemStop()" disabled>⏹ STOP</button>
+        <span id="armed-hint" class="hint" style="margin:0">Tool online — bấm START để chạy + bật lịch auto</span>
+      </div>
       <div class="stat-row">
         <div class="stat"><div class="lbl">Userbot</div><div class="val" id="st-bot">—</div></div>
+        <div class="stat"><div class="lbl">Auto</div><div class="val" id="st-armed">—</div></div>
         <div class="stat"><div class="lbl">Trạng thái</div><div class="val" id="st-status">—</div></div>
         <div class="stat"><div class="lbl">Kênh</div><div class="val" id="st-channels">—</div></div>
         <div class="stat"><div class="lbl">Lệnh chờ</div><div class="val" id="st-pending">—</div></div>
       </div>
       <div class="card action-bar">
-        <h2>▶ Bắt đầu chạy</h2>
-        <p class="hint">Bấm nút → tool xếp hàng → userbot thực thi trong ~2 giây. Theo dõi log bên dưới.</p>
+        <h2>▶ Chạy thủ công</h2>
+        <p class="hint">Các nút dưới chạy ngay (không cần START). Bot gửi link + tên topic khi chạy.</p>
         <div class="btn-row">
           <button class="run" onclick="runAction('run_full_cycle')">▶ Full cycle<br><small style="font-weight:400;opacity:.85">Topic + /all</small></button>
           <button class="run" onclick="runAction('run_all_topics')">▶ Tất cả topic</button>
@@ -520,14 +532,31 @@
     function renderMeta(meta) {
       if (!meta) return;
       const banner = $("boot-banner");
+      const armedBanner = $("armed-banner");
+      const armed = !!meta.system_armed;
+      $("btn-start").disabled = armed || !meta.userbot_ready;
+      $("btn-stop").disabled = !armed;
+      $("st-armed").innerHTML = armed
+        ? `<span class="badge run">Đã START</span>`
+        : `<span class="badge warn">Chờ START</span>`;
       if (!meta.userbot_ready) {
         banner.style.display = "block";
         banner.className = "status-banner warn";
-        banner.innerHTML = "⚠️ Userbot chưa chạy (thiếu API hoặc chưa restart). Cấu hình tab <strong>Telegram & Bot</strong> hoặc <strong>Import .env</strong> → restart tool. Lệnh bấm ở đây sẽ xếp hàng chờ.";
-      } else {
+        banner.innerHTML = "⚠️ Userbot chưa chạy (thiếu API hoặc chưa restart). Cấu hình tab <strong>Telegram & Bot</strong> hoặc <strong>Import .env</strong> → restart tool.";
+        armedBanner.style.display = "none";
+        $("armed-hint").textContent = "Cấu hình API trước — sau đó bấm START";
+      } else if (!armed) {
         banner.style.display = "block";
-        banner.className = "status-banner ok";
-        banner.textContent = "✅ Userbot đang chạy — bấm ▶ để chạy task, theo dõi log real-time bên dưới.";
+        banner.className = "status-banner warn";
+        banner.textContent = "⏸ Tool đang online — chưa chạy auto. Bấm START để chạy full cycle + bật lịch.";
+        armedBanner.style.display = "none";
+        $("armed-hint").textContent = "Bot sẽ gửi link + tên topic khi chạy";
+      } else {
+        banner.style.display = "none";
+        armedBanner.style.display = "block";
+        armedBanner.className = "status-banner armed";
+        armedBanner.textContent = "✅ Đã START — auto + lịch đang bật. Bot thông báo tiến trình kèm link topic.";
+        $("armed-hint").textContent = "Bấm STOP để dừng auto/lịch (tool vẫn online)";
       }
       $("st-bot").innerHTML = meta.userbot_ready
         ? `<span class="badge ok">Online</span>` : `<span class="badge warn">Web only</span>`;
@@ -627,6 +656,24 @@
       renderGlobal(snap.config.global || {});
       if (snap.runtime && snap.runtime.next_run_at) {
         $("sch-next-hint").textContent = `Lần chạy tiếp: ${fmtTs(snap.runtime.next_run_at)}`;
+      }
+    }
+
+    async function systemStart() {
+      try {
+        const r = await api("/system/start", { method: "POST" });
+        toast(r.message);
+      } catch (e) {
+        toast("Lỗi START: " + e.message);
+      }
+    }
+
+    async function systemStop() {
+      try {
+        const r = await api("/system/stop", { method: "POST" });
+        toast(r.message);
+      } catch (e) {
+        toast("Lỗi STOP: " + e.message);
       }
     }
 

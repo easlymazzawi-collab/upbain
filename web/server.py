@@ -21,7 +21,8 @@ from core.import_legacy import analyze_uploads, apply_import
 from core.map_config import apply_start_link_to_topic, clear_start_link, sync_topic_to_map_file
 from core.runtime import append_log, get_runtime
 from core.scheduler import compute_next_run_ts
-from core.settings import CHANNELS_FILE, api_ready, web_token
+from core.bot_notify import send_bot_notify
+from core.settings import api_ready, web_token, system_armed, set_system_armed
 from core.web_actions import action_labels, list_pending_actions, queue_action
 
 WEB_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -97,6 +98,7 @@ class GlobalIn(BaseModel):
     xepbai_whitelist_cmds: list[str] = []
     low_media_warn_threshold: int = 50
     auto_run_enabled: bool = True
+    system_armed: bool | None = None
     web_host: str = "0.0.0.0"
     web_port: int = 8080
     web_token: str = ""
@@ -151,6 +153,7 @@ def _snapshot() -> dict[str, Any]:
             "folder_count": len(folders),
             "topic_count": len(cfg.get("topic_sources") or {}),
             "userbot_ready": api_ready(),
+            "system_armed": system_armed(),
             "pending_actions": len(list_pending_actions()),
             "all_task_enabled": bool(all_task.get("enabled")),
             "all_task_configured": bool(
@@ -216,9 +219,47 @@ async def api_status(_=Depends(_auth)):
 @app.patch("/api/global")
 async def patch_global(body: GlobalIn, _=Depends(_auth)):
     cfg = load_auto_config()
-    cfg["global"].update(body.model_dump())
+    data = body.model_dump(exclude_none=True)
+    if "system_armed" in data:
+        set_system_armed(bool(data.pop("system_armed")))
+    cfg["global"].update(data)
     save_auto_config(cfg)
-    return cfg["global"]
+    return {**cfg["global"], "system_armed": system_armed()}
+
+
+@app.post("/api/system/start")
+async def api_system_start(_=Depends(_auth)):
+    set_system_armed(True)
+    action = queue_action("run_full_cycle")
+    append_log("info", "▶ START — arm system + full cycle")
+    await send_bot_notify(
+        "▶ <b>START</b> — bắt đầu full cycle\n"
+        "Bot sẽ gửi link + tên topic khi chạy từng map.",
+        parse_mode="HTML",
+    )
+    return {
+        "ok": True,
+        "system_armed": True,
+        "action": action,
+        "message": "Đã START — bot sẽ thông báo tiến trình + link topic",
+    }
+
+
+@app.post("/api/system/stop")
+async def api_system_stop(_=Depends(_auth)):
+    set_system_armed(False)
+    append_log("info", "⏹ STOP — tắt auto + lịch")
+    await send_bot_notify("⏹ <b>STOP</b> — tắt auto + lịch (tool vẫn online)", parse_mode="HTML")
+    return {
+        "ok": True,
+        "system_armed": False,
+        "message": "Đã STOP — tool online nhưng không chạy auto/lịch",
+    }
+
+
+@app.get("/api/system/status")
+async def api_system_status(_=Depends(_auth)):
+    return {"system_armed": system_armed(), "userbot_ready": api_ready()}
 
 
 @app.patch("/api/telegram")

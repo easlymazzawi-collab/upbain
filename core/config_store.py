@@ -29,6 +29,7 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
         "web_port": 8080,
         "web_token": "",
         "auto_run_enabled": True,
+        "system_armed": False,
         "schedule": {
             "enabled": False,
             "times": ["08:00", "20:00"],
