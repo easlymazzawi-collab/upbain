@@ -196,6 +196,7 @@ def _snapshot() -> dict[str, Any]:
                 )
             ),
             "plain_task_enabled": bool(plain_task.get("enabled")),
+            "web_token_required": bool(web_token()),
         },
         "ts": int(time.time()),
     }
@@ -414,9 +415,29 @@ async def patch_all_task(body: AllTaskPatchIn, _=Depends(_auth)):
     elif "source_link" in patch:
         patch["start_link"] = patch.get("source_link") or patch.get("start_link")
         patch.pop("source_link", None)
-    data = merge_all_task(patch)
-    append_log("info", f"/all {'bật' if data.get('enabled') else 'tắt'} — {len(data.get('selected_channel_ids') or [])} kênh")
-    return data
+    try:
+        data = merge_all_task(patch)
+    except ValueError as e:
+        append_log("error", f"/all link lỗi: {e}")
+        raise HTTPException(400, str(e))
+    link_saved = "start_link" in patch
+    if link_saved and data.get("source_chat_id"):
+        append_log(
+            "info",
+            f"/all lưu link → {data['source_chat_id']}:{data.get('source_topic_id')} "
+            f"(msg {data.get('start_msg_id') or '—'})",
+        )
+    elif "enabled" in patch:
+        append_log("info", f"/all {'bật' if data.get('enabled') else 'tắt'}")
+    elif patch.get("selected_channel_ids") is not None:
+        append_log("info", f"/all chọn {len(data.get('selected_channel_ids') or [])} kênh đích")
+    msg = None
+    if link_saved:
+        msg = (
+            f"✓ Đã lưu nguồn {data['source_chat_id']}:{data.get('source_topic_id')} "
+            "— userbot quét batch trong ~2s"
+        )
+    return {**data, "message": msg}
 
 
 @app.post("/api/all-task")

@@ -8,6 +8,64 @@ from typing import Any
 # https://t.me/username/678
 _C_RE = re.compile(r"t\.me/c/(\d+)/(?:(\d+)/)?(\d+)", re.I)
 _USER_RE = re.compile(r"t\.me/([a-zA-Z0-9_]+)/(\d+)", re.I)
+_CHAT_TOPIC_RE = re.compile(r"^(-?\d+)\s*[:/]\s*(\d+)(?:\s*[:/]\s*(\d+))?$")
+_CHAT_ONLY_RE = re.compile(r"^-?\d+$")
+
+
+def parse_source_link(raw: str) -> dict[str, Any] | None:
+    """
+    Link nguồn /all — hỗ trợ:
+      https://t.me/c/123/5/678
+      -1001234567890:5
+      -1001234567890:5:678
+      -1001234567890/5/678
+    Chỉ chat ID (-100...) → thiếu topic.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+
+    if "t.me" in raw or raw.startswith("http"):
+        p = parse_telegram_link(raw)
+        if not p or not p.get("src_chat_id"):
+            return None
+        out: dict[str, Any] = {"src_chat_id": int(p["src_chat_id"])}
+        if p.get("topic_id") is not None:
+            out["topic_id"] = int(p["topic_id"])
+        if p.get("msg_id"):
+            out["msg_id"] = int(p["msg_id"])
+        return out
+
+    m = _CHAT_TOPIC_RE.match(raw)
+    if m:
+        out = {
+            "src_chat_id": normalize_chat_id(m.group(1)),
+            "topic_id": int(m.group(2)),
+        }
+        if m.group(3):
+            out["msg_id"] = int(m.group(3))
+        return out
+
+    if _CHAT_ONLY_RE.match(raw):
+        return {"src_chat_id": normalize_chat_id(raw), "topic_id": None, "_chat_only": True}
+
+    return None
+
+
+def source_link_error(parsed: dict[str, Any] | None, raw: str) -> str | None:
+    if not raw.strip():
+        return "Chưa có link nguồn."
+    if not parsed:
+        return (
+            "Link không hợp lệ. Dán link Telegram dạng "
+            "https://t.me/c/1234567890/5/678 hoặc nhập -100xxx:topic_id"
+        )
+    if parsed.get("_chat_only") or parsed.get("topic_id") is None:
+        return (
+            f"Thiếu topic ID (bạn nhập {raw!r}). "
+            "Dán link đủ t.me/c/.../topic/msg hoặc -100xxx:topic_id"
+        )
+    return None
 
 
 def parse_telegram_link(url: str) -> dict[str, Any] | None:

@@ -75,6 +75,8 @@
     .post-row input { width: auto; margin: 0; }
     .post-row a { color: var(--accent); font-size: 0.8rem; margin-left: auto; }
     #plain-post-list { max-height: 360px; overflow-y: auto; }
+    #log-panel { max-height: 70vh; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 0.82rem; }
+    .token-hint { font-size: 0.72rem; color: var(--muted); max-width: 200px; line-height: 1.3; }
   </style>
 </head>
 <body>
@@ -85,9 +87,10 @@
     </div>
     <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
       <div class="live"><span class="dot" id="live-dot"></span><span id="live-label">Đang kết nối...</span></div>
-      <div>
-        <label style="display:inline;margin:0">Token web</label>
-        <input id="token" type="password" placeholder="web_token" style="width:140px;display:inline-block;margin:0" />
+      <div title="Chỉ cần nhập nếu bạn đã đặt Web token trong tab Cài đặt — khóa dashboard">
+        <label style="display:inline;margin:0">Khóa web</label>
+        <input id="token" type="password" placeholder="để trống nếu chưa khóa" style="width:160px;display:inline-block;margin:0" />
+        <div class="token-hint" id="token-hint">Tùy chọn — bảo vệ web bằng mật khẩu</div>
       </div>
     </div>
   </header>
@@ -102,6 +105,7 @@
       <button data-tab="schedule">Lịch auto</button>
       <button data-tab="telegram">Telegram & Bot</button>
       <button data-tab="import">Import dữ liệu cũ</button>
+      <button data-tab="logs">Log</button>
       <button data-tab="global">Cài đặt</button>
     </div>
 
@@ -178,9 +182,10 @@
           <span class="badge" id="all-status">—</span>
         </label>
         <label>Link nguồn (topic/group)</label>
-        <input id="all-source-link" placeholder="https://t.me/c/1234567890/5/678" />
+        <input id="all-source-link" placeholder="https://t.me/c/1234567890/5/678 hoặc -100xxx:topic_id" />
+        <div id="all-save-status" class="status-banner warn" style="display:none;margin-top:0.5rem"></div>
         <div class="btn-row" style="margin-top:0.5rem">
-          <button class="primary" onclick="saveAllLink()">💾 Lưu link</button>
+          <button id="btn-save-all-link" class="primary" onclick="saveAllLink()">💾 Lưu link</button>
           <button class="run" onclick="runAction('run_all_task')">▶ Chạy /all</button>
         </div>
         <p class="hint" id="all-source-hint">—</p>
@@ -322,6 +327,20 @@
       </div>
     </section>
 
+    <section id="logs" class="panel">
+      <div class="card">
+        <h2>Nhật ký tool (real-time)</h2>
+        <p class="hint">Mọi thao tác web, lưu link, chạy lệnh, lỗi userbot đều ghi ở đây.</p>
+        <div class="btn-row" style="margin-bottom:0.75rem">
+          <button class="secondary" id="log-f-all" onclick="setLogFilter('all')">Tất cả</button>
+          <button class="secondary" id="log-f-info" onclick="setLogFilter('info')">Info</button>
+          <button class="secondary" id="log-f-warn" onclick="setLogFilter('warn')">Cảnh báo</button>
+          <button class="secondary" id="log-f-error" onclick="setLogFilter('error')">Lỗi</button>
+        </div>
+        <div id="log-panel">Đang tải...</div>
+      </div>
+    </section>
+
     <section id="global" class="panel">
       <div class="card">
         <h2>Cài đặt chung</h2>
@@ -359,6 +378,7 @@
     let allBatchPreview = null;
     let plainIncludedIds = new Set();
     let allTaskCache = {};
+    let logFilter = "all";
     let scheduleTimes = ["08:00", "20:00"];
     let es = null;
     let importQueue = [];
@@ -468,8 +488,50 @@
 
     async function api(path, opts = {}) {
       const r = await fetch("/api" + path, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
-      if (!r.ok) throw new Error(await r.text());
+      if (!r.ok) {
+        const text = await r.text();
+        try {
+          const j = JSON.parse(text);
+          const detail = j.detail;
+          throw new Error(typeof detail === "string" ? detail : (detail?.msg || text));
+        } catch (e) {
+          if (e instanceof Error && e.message !== text) throw e;
+          throw new Error(text || `HTTP ${r.status}`);
+        }
+      }
       return r.json();
+    }
+
+    function setAllSaveStatus(kind, msg) {
+      const el = $("all-save-status");
+      if (!msg) { el.style.display = "none"; return; }
+      el.style.display = "block";
+      el.className = "status-banner " + (kind === "ok" ? "ok" : kind === "run" ? "armed" : "warn");
+      el.textContent = msg;
+    }
+
+    function setLogFilter(f) {
+      logFilter = f;
+      ["all", "info", "warn", "error"].forEach(k => {
+        const b = $("log-f-" + k);
+        if (b) b.classList.toggle("primary", k === f);
+      });
+      renderLogPanel(lastRuntimeLog || []);
+    }
+
+    let lastRuntimeLog = [];
+
+    function renderLogPanel(log) {
+      lastRuntimeLog = log || [];
+      const items = [...lastRuntimeLog].reverse().filter(l => {
+        if (logFilter === "all") return true;
+        return (l.level || "info") === logFilter;
+      });
+      $("log-panel").innerHTML = items.length
+        ? items.map(l =>
+            `<div class="log-line ${l.level || "info"}">[${fmtTs(l.ts)}] ${l.message}</div>`
+          ).join("")
+        : "<p class=\"hint\">Chưa có log" + (logFilter !== "all" ? ` (${logFilter})` : "") + ".</p>";
     }
 
     function renderInventory(inv) {
@@ -581,6 +643,14 @@
       $("st-pending").textContent = meta.pending_actions ?? "0";
       $("ch-total").textContent = meta.channel_count ?? "0";
       $("all-ch-count").textContent = meta.channel_count ?? "0";
+      const th = $("token-hint");
+      if (meta.web_token_required) {
+        th.textContent = "⚠ Dashboard đang khóa — nhập Web token (tab Cài đặt)";
+        th.style.color = "var(--warn)";
+      } else {
+        th.textContent = "Tùy chọn — chỉ cần nếu bạn đã đặt Web token trong Cài đặt";
+        th.style.color = "";
+      }
     }
 
     function renderChannelsPage(channels, folders) {
@@ -641,8 +711,9 @@
       renderPending(rt.pending_up);
       const log = (rt.log || []).slice().reverse();
       $("activity-log").innerHTML = log.length
-        ? log.map(l => `<div class="log-line ${l.level}">[${fmtTs(l.ts)}] ${l.message}</div>`).join("")
+        ? log.slice(0, 40).map(l => `<div class="log-line ${l.level}">[${fmtTs(l.ts)}] ${l.message}</div>`).join("")
         : "<p style='color:var(--muted)'>Chưa có log.</p>";
+      renderLogPanel(rt.log || []);
     }
 
     function renderChannelPicker(containerId, cssClass, channels, selectedIds, onChangeFn) {
@@ -664,7 +735,9 @@
       const srcOk = task.source_chat_id && task.source_topic_id;
       $("all-source-hint").textContent = srcOk
         ? `✓ Nguồn: ${task.source_chat_id}:${task.source_topic_id}${task.start_msg_id ? " · msg " + task.start_msg_id : ""}`
-        : "Chưa có link nguồn — dán link topic rồi Lưu";
+        : (task.start_link
+          ? "⚠ Link chưa hợp lệ — cần dạng https://t.me/c/.../topic/msg hoặc -100xxx:topic_id"
+          : "Chưa có link nguồn — dán link topic rồi bấm Lưu link");
       $("all-ch-count").textContent = (task.selected_channel_ids || []).length;
       renderChannelPicker("all-channels", "all-ch", channels, task.selected_channel_ids, "debounceAllChannels()");
     }
@@ -915,12 +988,20 @@
       if (cls === "plain-ch") debouncePlainChannels();
     }
 
-    async function patchAll(patch) {
+    async function patchAll(patch, opts = {}) {
       try {
         const r = await api("/all-task", { method: "PATCH", body: JSON.stringify(patch) });
         renderAllTask(r, channelCache);
-        toast(patch.enabled !== undefined ? (patch.enabled ? "Đã bật /all" : "Đã tắt /all") : "Đã lưu /all");
-      } catch (e) { toast("Lỗi: " + e.message); }
+        if (!opts.quiet) {
+          if (r.message) toast(r.message);
+          else if (patch.enabled !== undefined) toast(patch.enabled ? "Đã bật /all" : "Đã tắt /all");
+          else toast("Đã lưu /all");
+        }
+        return r;
+      } catch (e) {
+        if (!opts.quiet) toast("Lỗi: " + e.message);
+        throw e;
+      }
     }
 
     async function patchPlain(patch, quiet) {
@@ -953,9 +1034,30 @@
 
     async function saveAllLink() {
       const link = $("all-source-link").value.trim();
-      if (!link) { toast("Dán link nguồn trước"); return; }
-      await patchAll({ source_link: link });
-      runAction("refresh_all_batch");
+      const btn = $("btn-save-all-link");
+      if (!link) {
+        setAllSaveStatus("warn", "⚠ Dán link nguồn trước — ví dụ https://t.me/c/1234567890/5/678");
+        toast("Dán link nguồn trước");
+        return;
+      }
+      btn.disabled = true;
+      setAllSaveStatus("armed", "⏳ Đang lưu link...");
+      try {
+        const r = await patchAll({ source_link: link }, { quiet: true });
+        setAllSaveStatus("ok", r.message || "✓ Đã lưu — đang xếp hàng quét batch...");
+        toast(r.message || "Đã lưu link");
+        setAllSaveStatus("armed", "⏳ Userbot quét batch (~2s)...");
+        const ar = await api("/actions", {
+          method: "POST",
+          body: JSON.stringify({ type: "refresh_all_batch", params: {} }),
+        });
+        setAllSaveStatus("ok", (r.message || "✓ Đã lưu link") + " · " + ar.message);
+        toast(ar.message);
+      } catch (e) {
+        setAllSaveStatus("warn", "❌ " + e.message);
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     async function saveSchedule() {
@@ -1008,9 +1110,15 @@
     async function init() {
       try {
         channelCache = await api("/channels");
+        setLogFilter("all");
         connectStream();
       } catch (e) {
-        toast("Lỗi: " + e.message);
+        const msg = e.message || String(e);
+        toast("Lỗi kết nối: " + msg);
+        if (msg.includes("401") || msg.toLowerCase().includes("unauthorized")) {
+          $("token-hint").textContent = "❌ Sai khóa web — nhập đúng Web token (tab Cài đặt)";
+          $("token-hint").style.color = "var(--danger)";
+        }
         setTimeout(init, 3000);
       }
     }

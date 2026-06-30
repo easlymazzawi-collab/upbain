@@ -7,7 +7,7 @@ import os
 from typing import Any
 
 from core.config_store import load_auto_config, save_auto_config
-from core.link_parser import parse_telegram_link
+from core.link_parser import parse_source_link, parse_telegram_link, source_link_error
 from core.settings import CHANNELS_FILE
 
 
@@ -17,16 +17,18 @@ def apply_link_fields(task: dict[str, Any]) -> dict[str, Any]:
     link = (out.get("start_link") or out.get("source_link") or "").strip()
     if link:
         out["start_link"] = link
-        parsed = parse_telegram_link(link)
-        if parsed:
-            if parsed.get("src_chat_id"):
-                out["source_chat_id"] = parsed["src_chat_id"]
-            if parsed.get("topic_id") is not None:
-                out["source_topic_id"] = parsed["topic_id"]
+        parsed = parse_source_link(link)
+        err = source_link_error(parsed, link)
+        if err:
+            out["_link_error"] = err
+        elif parsed:
+            out["source_chat_id"] = parsed["src_chat_id"]
+            out["source_topic_id"] = parsed["topic_id"]
             if parsed.get("msg_id"):
                 out["start_msg_id"] = parsed["msg_id"]
                 out["cursor_msg_id"] = parsed["msg_id"]
                 out["pin_mode"] = "link"
+            out.pop("_link_error", None)
     out.setdefault("use_ads", False)
     out.setdefault("xep_cpa", 1)
     out.setdefault("xep_mode", "normal")
@@ -44,6 +46,11 @@ def merge_all_task(patch: dict[str, Any]) -> dict[str, Any]:
     if patch.get("source_link") is not None:
         cur["start_link"] = patch["source_link"]
     cur = apply_link_fields(cur)
+    link_patch = patch.get("source_link") is not None or patch.get("start_link") is not None
+    if link_patch:
+        err = cur.pop("_link_error", None)
+        if err:
+            raise ValueError(err)
     cfg["all_task"] = cur
     save_auto_config(cfg)
     return cur
