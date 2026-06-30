@@ -351,11 +351,19 @@
     <section id="import" class="panel">
       <div class="card">
         <h2>Import .env & file data cũ</h2>
-        <p class="hint">Kéo thả hoặc chọn file — tool tự map vào web config. Hỗ trợ ZIP chứa nhiều file.</p>
+        <p class="hint">
+          Giải nén file cũ <strong>cùng folder tool</strong> → bấm <strong>Quét folder tool</strong> bên dưới.
+          Hoặc kéo thả / chọn file từ máy (ZIP cũng được).
+        </p>
+        <div class="status-banner warn" id="import-disk-hint" style="display:none;margin-bottom:0.75rem"></div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem">
+          <button class="primary" onclick="scanDiskImport()">📁 Quét folder tool</button>
+          <button class="run" onclick="applyDiskImport()">Import từ folder tool</button>
+        </div>
         <div class="dropzone" id="dropzone" style="border:2px dashed var(--border);border-radius:12px;padding:2rem;text-align:center;cursor:pointer">
           <p style="margin:0">📂 Kéo thả vào đây hoặc <strong>bấm chọn file</strong></p>
           <p class="hint" style="margin:0.5rem 0 0">.env · channels.json · folders.json · topic_map.txt · topic_rr.json · inventory.json · auto_config.json · *.session · .zip</p>
-          <input id="import-files" type="file" multiple accept=".env,.json,.txt,.zip,.session" style="display:none" />
+          <input id="import-files" type="file" multiple accept="*/*" style="display:none" />
         </div>
         <ul class="file-list" id="import-file-list"></ul>
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">
@@ -469,13 +477,66 @@
         : "<li>Chưa chọn file</li>";
     }
 
+    async function parseFetchError(r) {
+      const text = await r.text();
+      try {
+        const j = JSON.parse(text);
+        const detail = j.detail;
+        if (typeof detail === "string") return detail;
+        if (Array.isArray(detail)) return detail.map(d => d.msg || JSON.stringify(d)).join("; ");
+        return detail?.msg || text;
+      } catch (_) {
+        return text || `HTTP ${r.status}`;
+      }
+    }
+
     async function uploadImportFiles(path) {
       if (!importQueue.length) throw new Error("Chưa chọn file");
       const fd = new FormData();
       importQueue.forEach(f => fd.append("files", f, f.name));
       const r = await fetch("/api" + path, { method: "POST", headers: authHeadersOnly(), body: fd });
-      if (!r.ok) throw new Error(await r.text());
+      if (!r.ok) {
+        const msg = await parseFetchError(r);
+        if (r.status === 401) throw new Error("Sai Web token — nhập token tab Cài đặt (hoặc xóa WEB_TOKEN trong .env)");
+        throw new Error(msg);
+      }
       return r.json();
+    }
+
+    function showDiskHint(workspace, found, preview) {
+      const el = $("import-disk-hint");
+      if (!found?.length) {
+        el.style.display = "block";
+        el.className = "status-banner warn";
+        el.textContent = `Không thấy file cũ trong ${workspace}. Đặt .env, channels.json, topic_map.txt... cùng folder với tool.`;
+        return;
+      }
+      el.style.display = "block";
+      el.className = "status-banner ok";
+      el.textContent = `📁 ${workspace} — tìm thấy: ${found.join(", ")}`;
+      if (preview) $("import-preview").textContent = formatPreview(preview);
+    }
+
+    async function scanDiskImport() {
+      try {
+        const res = await api("/import/scan");
+        showDiskHint(res.workspace, res.found_files, res.preview);
+      } catch (e) {
+        toast("Lỗi quét folder: " + e.message);
+      }
+    }
+
+    async function applyDiskImport() {
+      try {
+        const res = await api("/import/from-disk", { method: "POST" });
+        showDiskHint(res.workspace, res.found_files, res.preview);
+        $("import-preview").textContent = formatPreview(res.preview) + "\n\n✅ " + res.message;
+        toast(res.message);
+        importQueue = [];
+        renderImportList();
+      } catch (e) {
+        toast("Lỗi import folder: " + e.message);
+      }
     }
 
     function formatPreview(p) {

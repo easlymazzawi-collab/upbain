@@ -17,7 +17,7 @@ from core.config_store import (
     topic_key,
     upsert_topic_source,
 )
-from core.import_legacy import analyze_uploads, apply_import
+from core.import_legacy import analyze_uploads, apply_import, import_from_workspace, scan_workspace
 from core.all_config import merge_all_task, merge_plain_task
 from core.map_config import (
     apply_start_link_flexible,
@@ -721,6 +721,32 @@ async def _read_uploads(files: list[UploadFile]) -> list[tuple[str, bytes]]:
         if data:
             out.append((f.filename, data))
     return out
+
+
+@app.get("/api/import/scan")
+async def import_scan_disk(_=Depends(_auth)):
+    preview, _, found = scan_workspace()
+    return {
+        "workspace": os.getcwd(),
+        "found_files": found,
+        "preview": preview.to_dict(),
+    }
+
+
+@app.post("/api/import/from-disk")
+async def import_apply_disk(_=Depends(_auth)):
+    try:
+        result = import_from_workspace()
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    msg = (
+        f"Import từ folder: {len(result['applied']['files_written'])} file, "
+        f"{len(result['applied']['global_updated'])} field config, "
+        f"{result['applied']['topics_upserted']} topic map"
+    )
+    append_log("info", msg)
+    result["message"] = msg
+    return result
 
 
 @app.post("/api/import/preview")

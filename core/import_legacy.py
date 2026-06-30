@@ -256,6 +256,84 @@ def _basename(name: str) -> str:
     return os.path.basename(name.replace("\\", "/"))
 
 
+def workspace_root() -> str:
+    """Thư mục làm việc của tool (nơi user giải nén file cũ)."""
+    return os.getcwd()
+
+
+def collect_workspace_files(root: str | None = None) -> list[tuple[str, bytes]]:
+    """Đọc file data cũ đã có trên disk trong folder tool."""
+    root = root or workspace_root()
+    out: list[tuple[str, bytes]] = []
+
+    for env_name in (".env", "env"):
+        path = os.path.join(root, env_name)
+        if os.path.isfile(path):
+            with open(path, "rb") as f:
+                out.append((env_name, f.read()))
+
+    for base in ROOT_FILES:
+        path = os.path.join(root, base)
+        if os.path.isfile(path):
+            with open(path, "rb") as f:
+                out.append((base, f.read()))
+
+    for base, dest in DATA_FILES.items():
+        path = os.path.join(root, dest)
+        if os.path.isfile(path):
+            with open(path, "rb") as f:
+                out.append((base, f.read()))
+
+    try:
+        for name in sorted(os.listdir(root)):
+            low = name.lower()
+            if any(low.endswith(sfx) for sfx in SESSION_SUFFIXES):
+                path = os.path.join(root, name)
+                if os.path.isfile(path):
+                    with open(path, "rb") as f:
+                        out.append((name, f.read()))
+    except OSError:
+        pass
+
+    return out
+
+
+def scan_workspace(root: str | None = None) -> tuple[ImportPreview, dict[str, Any], list[str]]:
+    """Quét folder tool — preview + payload (chưa ghi)."""
+    root = root or workspace_root()
+    files = collect_workspace_files(root)
+    preview = ImportPreview()
+    if not files:
+        preview.warnings.append(
+            f"Không thấy file import trong {root} — cần .env, channels.json, topic_map.txt, data/*.json..."
+        )
+        return preview, {}, [root]
+
+    preview, payload = analyze_uploads(files)
+    found = [name for name, _ in files]
+    return preview, payload, found
+
+
+def import_from_workspace(root: str | None = None) -> dict[str, Any]:
+    """Import trực tiếp từ file đã có trong folder tool."""
+    preview, payload, found = scan_workspace(root)
+    if preview.errors:
+        raise ValueError("; ".join(preview.errors))
+    if not found:
+        raise ValueError(
+            "Không tìm thấy file cũ trong folder tool. "
+            "Đặt .env, channels.json, topic_map.txt... cùng thư mục với tool rồi thử lại."
+        )
+    applied = apply_import(payload)
+    return {
+        "ok": True,
+        "preview": preview.to_dict(),
+        "applied": applied,
+        "found_files": found,
+        "workspace": root or workspace_root(),
+    }
+
+
 def analyze_uploads(files: list[tuple[str, bytes]]) -> tuple[ImportPreview, dict[str, Any]]:
     """Phân tích file upload, trả preview + payload nội bộ (chưa ghi disk)."""
     preview = ImportPreview()
