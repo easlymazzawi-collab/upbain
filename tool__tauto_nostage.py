@@ -29,6 +29,46 @@ Fixes v25 (so với v24):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
+# Pyrogram cần stdlib `platform` — folder local tên `platform/` (bản cũ) sẽ che → crash Windows.
+def _bootstrap_stdlib_platform() -> None:
+    import sys
+    import os
+
+    root = os.path.dirname(os.path.abspath(__file__))
+    shadow_dir = os.path.join(root, "platform")
+    shadow_py = os.path.join(root, "platform.py")
+    has_shadow = os.path.isdir(shadow_dir) or os.path.isfile(shadow_py)
+
+    mod = sys.modules.get("platform")
+    if mod is not None and not hasattr(mod, "python_implementation"):
+        del sys.modules["platform"]
+        for key in list(sys.modules):
+            if key == "platform" or key.startswith("platform."):
+                del sys.modules[key]
+
+    if has_shadow:
+        print(
+            "⚠️  Phát hiện folder/file `platform` cũ trong project.\n"
+            "    Xóa `platform\\` (chỉ giữ `research_platform\\`) sau khi git pull.\n"
+            "    Tool vẫn cố chạy bằng stdlib platform..."
+        )
+
+    if "platform" not in sys.modules or not hasattr(sys.modules.get("platform"), "python_implementation"):
+        saved = sys.path.copy()
+        try:
+            sys.path[:] = [
+                p for p in sys.path
+                if os.path.abspath(p or root) != root
+            ]
+            import platform as _stdlib_platform  # noqa: F401
+            if not hasattr(_stdlib_platform, "python_implementation"):
+                raise RuntimeError("stdlib platform not loaded")
+        finally:
+            sys.path[:] = saved
+
+
+_bootstrap_stdlib_platform()
+
 import asyncio
 import copy
 import os
