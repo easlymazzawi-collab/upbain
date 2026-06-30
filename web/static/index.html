@@ -471,6 +471,7 @@
     let channelCache = [];
     let channelSaveTimer = null;
     let mapPostSaveTimer = null;
+    let plainMapSaveTimer = null;
     let mapPostDrafts = {};
     let mapMediaDrafts = {};
     let linkDrafts = {};
@@ -953,10 +954,26 @@
       }
     }
 
+    function capturePlainMapLimitDrafts() {
+      document.querySelectorAll("#plain-topics-list .plain-map-media-in").forEach(el => {
+        const key = `${el.dataset.src}:${el.dataset.tid}:${(el.dataset.cmd || "").toLowerCase()}`;
+        if (document.activeElement === el || el.value !== "") {
+          plainMapMediaDrafts[key] = el.value;
+        }
+      });
+      document.querySelectorAll("#plain-topics-list .plain-map-post-in").forEach(el => {
+        const key = `${el.dataset.src}:${el.dataset.tid}:${(el.dataset.cmd || "").toLowerCase()}`;
+        if (document.activeElement === el || el.value !== "") {
+          plainMapPostDrafts[key] = el.value;
+        }
+      });
+    }
+
     function renderPlainTopics(list) {
       $("plain-map-count").textContent = list?.length || 0;
       if (containerHasFocus("plain-topics-list") || isEditableFocusedIn("plain")) return;
       capturePlainCmdDrafts();
+      capturePlainMapLimitDrafts();
       if (!list?.length) {
         $("plain-topics-list").innerHTML =
           "<p style='color:var(--muted)'>Chưa có map Up bài — thêm ở trên hoặc Import → Đồng bộ lại.</p>";
@@ -965,6 +982,15 @@
       $("plain-topics-list").innerHTML = list.map(t => {
         const rowId = "plain-" + topicRowId(t);
         const name = t.topic_title || `topic ${t.topic_id || "?"}`;
+        const limits = t.map_post_limits || {};
+        const mlimits = t.map_media_limits || {};
+        const limitBits = (t.mapped_cmds || []).map(c => {
+          const k = String(c).toLowerCase();
+          const bits = [];
+          if (mlimits[k]) bits.push(`${mlimits[k]}m`);
+          if (limits[k]) bits.push(`${limits[k]}b`);
+          return bits.length ? `/${c}:${bits.join("/")}` : "";
+        }).filter(Boolean).join(" ");
         const cmdKey = `${t.src_chat_id || 0}:${t.topic_id || 0}`;
         const primaryCmd = plainCmdDrafts[cmdKey] !== undefined
           ? plainCmdDrafts[cmdKey]
@@ -975,6 +1001,21 @@
         const status = t.start_link && displayLink.trim() === t.start_link
           ? `<span class="badge ok">✓ msg ${t.start_msg_id || "?"}</span>`
           : (displayLink.trim() ? `<span class="badge warn">chưa lưu</span>` : `<span class="badge warn">chưa có link</span>`);
+        const limitRow = (t.mapped_cmds || []).map(cmd => {
+          const key = String(cmd).toLowerCase();
+          const postDraft = plainMapPostDrafts[`${t.src_chat_id || 0}:${t.topic_id || 0}:${key}`];
+          const mediaDraft = plainMapMediaDrafts[`${t.src_chat_id || 0}:${t.topic_id || 0}:${key}`];
+          const postVal = postDraft !== undefined ? postDraft : (limits[key] || "");
+          const mediaVal = mediaDraft !== undefined ? mediaDraft : (mlimits[key] || "");
+          return `<span class="limit-pair" style="font-size:0.85rem;margin-right:0.75rem">/${cmd}
+            <input type="number" min="0" class="plain-map-media-in" style="width:56px;margin:0 0.2rem"
+              data-src="${t.src_chat_id || 0}" data-tid="${t.topic_id || 0}" data-cmd="${cmd}"
+              value="${mediaVal}" placeholder="30" title="Số media" oninput="onLimitInput(this,'media')" onchange="debouncePlainMapLimits(this)" /> media
+            <span style="color:var(--muted);font-size:0.8rem"> hoặc </span>
+            <input type="number" min="0" class="plain-map-post-in" style="width:56px;margin:0 0.2rem"
+              data-src="${t.src_chat_id || 0}" data-tid="${t.topic_id || 0}" data-cmd="${cmd}"
+              value="${postVal}" placeholder="—" title="Số bài" oninput="onLimitInput(this,'posts')" onchange="debouncePlainMapLimits(this)" /> bài</span>`;
+        }).join("");
         return `<div class="topic-row">
           <div class="topic-info" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
             <strong>${escHtml(name)}</strong>
@@ -983,10 +1024,12 @@
               data-src="${t.src_chat_id || 0}" data-tid="${t.topic_id || 0}" data-title="${safeTitle}"
               data-old="${primaryCmd}" onchange="savePlainMapCmd(this)" />
             ${status}
+            ${limitBits ? `<span class="badge ok">${limitBits}</span>` : ""}
             <span class="badge ok">Up bài · không ads</span>
             <button class="secondary" style="margin-left:auto;padding:0.25rem 0.6rem"
               onclick="deletePlainTopicMap(${t.src_chat_id || 0}, ${t.topic_id || 0}, '${safeTitle}')">🗑 Xóa</button>
           </div>
+          ${limitRow ? `<div class="sub-grid" style="margin:0.5rem 0">${limitRow}</div>` : ""}
           <div class="topic-link-row">
             <input id="${rowId}" type="text" placeholder="https://t.me/c/1234567890/5/678" value="${escLink}" />
             <button class="primary" onclick="savePlainTopicLink(${t.src_chat_id || 0}, ${t.topic_id || 0}, '${safeTitle}')">💾 Lưu link</button>
@@ -1133,6 +1176,53 @@
 
     async function saveMapPostLimits(src, tid) {
       return saveMapLimits(src, tid);
+    }
+
+    function debouncePlainMapLimits(el) {
+      const src = +el.dataset.src || 0;
+      const tid = +el.dataset.tid || 0;
+      const cmd = (el.dataset.cmd || "").toLowerCase();
+      const key = `${src}:${tid}:${cmd}`;
+      if (el.classList.contains("plain-map-media-in")) plainMapMediaDrafts[key] = el.value;
+      else plainMapPostDrafts[key] = el.value;
+      clearTimeout(plainMapSaveTimer);
+      plainMapSaveTimer = setTimeout(() => savePlainMapLimits(src, tid), 450);
+    }
+
+    async function savePlainMapLimits(src, tid) {
+      const map_post_limits = {};
+      const map_media_limits = {};
+      const byCmd = {};
+      document.querySelectorAll("#plain-topics-list .plain-map-post-in, #plain-topics-list .plain-map-media-in").forEach(el => {
+        if (+el.dataset.src !== src || +el.dataset.tid !== tid) return;
+        const cmd = (el.dataset.cmd || "").toLowerCase();
+        if (!cmd) return;
+        if (!byCmd[cmd]) byCmd[cmd] = {};
+        const n = parseInt(el.value, 10);
+        if (!n || n <= 0) return;
+        if (el.classList.contains("plain-map-media-in")) byCmd[cmd].media = n;
+        else byCmd[cmd].posts = n;
+      });
+      for (const [cmd, x] of Object.entries(byCmd)) {
+        if (x.posts && x.media) {
+          map_post_limits[cmd] = x.posts;
+        } else if (x.posts) {
+          map_post_limits[cmd] = x.posts;
+        } else if (x.media) {
+          map_media_limits[cmd] = x.media;
+        }
+      }
+      try {
+        await api(`/plain/topics/${src}/${tid}/map-limits`, {
+          method: "PATCH",
+          body: JSON.stringify({ map_post_limits, map_media_limits }),
+        });
+        Object.keys(plainMapPostDrafts).filter(k => k.startsWith(`${src}:${tid}:`)).forEach(k => delete plainMapPostDrafts[k]);
+        Object.keys(plainMapMediaDrafts).filter(k => k.startsWith(`${src}:${tid}:`)).forEach(k => delete plainMapMediaDrafts[k]);
+        toast("Đã lưu số media/bài (Up bài)");
+      } catch (e) {
+        toast("Lỗi: " + (e.message || e));
+      }
     }
 
     function renderMeta(meta) {
@@ -1510,6 +1600,8 @@
         || Object.keys(plainLinkDrafts).length > 0
         || Object.keys(mapPostDrafts).length > 0
         || Object.keys(mapMediaDrafts).length > 0
+        || Object.keys(plainMapPostDrafts).length > 0
+        || Object.keys(plainMapMediaDrafts).length > 0
         || Object.keys(aliasDrafts).length > 0
         || Object.keys(plainCmdDrafts).length > 0;
     }
