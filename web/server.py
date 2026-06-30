@@ -84,6 +84,7 @@ class TopicSourceIn(BaseModel):
     channels_no_ads: list[str] = []
     mapped_cmds: list[str] = []
     map_post_limits: dict[str, int] = Field(default_factory=dict)
+    map_media_limits: dict[str, int] = Field(default_factory=dict)
     target_posts_override: int | None = None
     enabled: bool = True
     pin_mode: str = "latest"
@@ -107,14 +108,21 @@ class PlainTaskPatchIn(BaseModel):
     included_msg_ids: list[int] | None = None
 
 
+class TopicMapLimitsIn(BaseModel):
+    map_post_limits: dict[str, int] = Field(default_factory=dict)
+    map_media_limits: dict[str, int] = Field(default_factory=dict)
+
+
 class TopicPostLimitsIn(BaseModel):
     map_post_limits: dict[str, int] = Field(default_factory=dict)
+    map_media_limits: dict[str, int] = Field(default_factory=dict)
 
 
 class TopicMapAddIn(BaseModel):
     topic_title: str
     channel_cmd: str
     post_count: int | None = None
+    media_count: int | None = None
     src_chat_id: int | None = None
     topic_id: int | None = None
 
@@ -124,6 +132,7 @@ class TopicMapCmdIn(BaseModel):
     old_cmd: str
     new_cmd: str
     post_count: int | None = None
+    media_count: int | None = None
 
 
 class AliasIn(BaseModel):
@@ -418,6 +427,7 @@ async def add_topic_map(body: TopicMapAddIn, _=Depends(_auth)):
             topic_title=body.topic_title,
             channel_cmd=body.channel_cmd,
             post_count=body.post_count,
+            media_count=body.media_count,
             src_chat_id=body.src_chat_id,
             topic_id=body.topic_id,
         )
@@ -439,6 +449,7 @@ async def patch_topic_mapping(
             old_cmd=body.old_cmd,
             new_cmd=body.new_cmd,
             post_count=body.post_count,
+            media_count=body.media_count,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -448,12 +459,31 @@ async def patch_topic_mapping(
 
 @app.post("/api/topics")
 async def post_topic(body: TopicSourceIn, _=Depends(_auth)):
-    from core.map_limits import normalize_post_limits
+    from core.map_limits import normalize_post_limits, normalize_media_limits
     data = body.model_dump()
     if data.get("map_post_limits"):
         data["map_post_limits"] = normalize_post_limits(data["map_post_limits"])
+    if data.get("map_media_limits"):
+        data["map_media_limits"] = normalize_media_limits(data["map_media_limits"])
     entry = upsert_topic_source(body.src_chat_id, body.topic_id, data)
     sync_topic_to_map_file(entry)
+    return entry
+
+
+@app.patch("/api/topics/{src_chat_id}/{topic_id}/map-limits")
+async def patch_topic_map_limits(
+    src_chat_id: int, topic_id: int, body: TopicMapLimitsIn, _=Depends(_auth),
+):
+    from core.map_limits import normalize_post_limits, normalize_media_limits
+    patch: dict = {}
+    if body.map_post_limits is not None:
+        patch["map_post_limits"] = normalize_post_limits(body.map_post_limits)
+    if body.map_media_limits is not None:
+        patch["map_media_limits"] = normalize_media_limits(body.map_media_limits)
+    entry = upsert_topic_source(src_chat_id, topic_id, patch)
+    sync_topic_to_map_file(entry)
+    title = entry.get("topic_title") or f"{src_chat_id}:{topic_id}"
+    append_log("info", f"Map limits {title}: media={patch.get('map_media_limits')} bài={patch.get('map_post_limits')}")
     return entry
 
 
@@ -461,12 +491,14 @@ async def post_topic(body: TopicSourceIn, _=Depends(_auth)):
 async def patch_topic_post_limits(
     src_chat_id: int, topic_id: int, body: TopicPostLimitsIn, _=Depends(_auth),
 ):
-    from core.map_limits import normalize_post_limits
-    limits = normalize_post_limits(body.map_post_limits)
-    entry = upsert_topic_source(src_chat_id, topic_id, {"map_post_limits": limits})
+    from core.map_limits import normalize_post_limits, normalize_media_limits
+    patch: dict = {"map_post_limits": normalize_post_limits(body.map_post_limits)}
+    if body.map_media_limits:
+        patch["map_media_limits"] = normalize_media_limits(body.map_media_limits)
+    entry = upsert_topic_source(src_chat_id, topic_id, patch)
     sync_topic_to_map_file(entry)
     title = entry.get("topic_title") or f"{src_chat_id}:{topic_id}"
-    append_log("info", f"Số bài/map {title}: {limits or '(mặc định media)'}")
+    append_log("info", f"Số bài/map {title}: {patch.get('map_post_limits')}")
     return entry
 
 

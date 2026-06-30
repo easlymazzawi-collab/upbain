@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.inventory import check_low_stock, update_after_scan
-from core.map_limits import max_post_limit
+from core.map_limits import max_media_limit, max_post_limit
 from core.pin_manager import get_pinned_message_id
 from core.topic_parser import resolve_batch_params
 
@@ -225,8 +225,10 @@ async def collect_batch_from_topic(
         )
 
     params = resolve_batch_params(pinned_text, topic_cfg, global_cfg)
-    target_media = target_media_override or params["target_media"]
     target_posts = max_post_limit(topic_cfg) or params.get("target_posts")
+    target_media = int(
+        max_media_limit(topic_cfg) or target_media_override or params["target_media"]
+    )
     max_posts = int(topic_cfg.get("max_posts") or 100)
 
     posts: list[AtomicPost] = []

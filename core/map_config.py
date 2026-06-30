@@ -9,6 +9,7 @@ from core.config_store import load_auto_config, save_auto_config, topic_key, ups
 from core.map_limits import (
     format_map_comment,
     format_map_rhs,
+    normalize_media_limits,
     normalize_post_limits,
 )
 
@@ -112,6 +113,7 @@ def rebuild_topic_map_file() -> int:
         if not cmds:
             continue
         limits = normalize_post_limits(entry.get("map_post_limits"))
+        mlimits = normalize_media_limits(entry.get("map_media_limits"))
         left = _map_left_key(entry)
         if not left:
             continue
@@ -120,8 +122,9 @@ def rebuild_topic_map_file() -> int:
             if not c:
                 continue
             posts = limits.get(c.lower())
+            media = mlimits.get(c.lower())
             rhs = format_map_rhs(c, posts)
-            comment = format_map_comment(posts, title)
+            comment = format_map_comment(posts, title, media=media)
             line = f"{left} = {rhs}  # {comment}"
             sig = line.lower()
             if sig in seen:
@@ -145,6 +148,7 @@ def upsert_topic_mapping(
     topic_title: str,
     channel_cmd: str,
     post_count: int | None = None,
+    media_count: int | None = None,
     src_chat_id: int | None = None,
     topic_id: int | None = None,
 ) -> dict:
@@ -178,6 +182,11 @@ def upsert_topic_mapping(
     if post_count is not None and int(post_count) > 0:
         limits[cmd.lower()] = int(post_count)
     entry["map_post_limits"] = limits
+
+    mlimits = normalize_media_limits(entry.get("map_media_limits"))
+    if media_count is not None and int(media_count) > 0:
+        mlimits[cmd.lower()] = int(media_count)
+    entry["map_media_limits"] = mlimits
     entry.setdefault("enabled", True)
 
     cfg = load_auto_config()
@@ -195,6 +204,7 @@ def update_topic_mapping_cmd(
     old_cmd: str,
     new_cmd: str,
     post_count: int | None = None,
+    media_count: int | None = None,
 ) -> dict:
     o = (old_cmd or "").strip().lstrip("/").lower()
     n = (new_cmd or "").strip().lstrip("/")
@@ -225,6 +235,17 @@ def update_topic_mapping_cmd(
     elif post_count is not None and int(post_count) > 0:
         limits[n.lower()] = int(post_count)
     entry["map_post_limits"] = limits
+
+    mlimits = normalize_media_limits(entry.get("map_media_limits"))
+    if o in mlimits:
+        prev_m = mlimits.pop(o)
+        if media_count is not None and int(media_count) > 0:
+            mlimits[n.lower()] = int(media_count)
+        elif n.lower() not in mlimits:
+            mlimits[n.lower()] = prev_m
+    elif media_count is not None and int(media_count) > 0:
+        mlimits[n.lower()] = int(media_count)
+    entry["map_media_limits"] = mlimits
 
     cfg = load_auto_config()
     cfg.setdefault("topic_sources", {})[key] = entry

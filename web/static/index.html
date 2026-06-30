@@ -166,7 +166,7 @@
     <section id="topics" class="panel">
       <div class="card">
         <h2>Topic map</h2>
-        <p class="hint">Thêm/sửa mapping trực tiếp — tự ghi <code>topic_map.txt</code>. Sau đó dán link bắt đầu → <strong>Lưu link</strong> → <strong>Chạy</strong>.</p>
+        <p class="hint">Thêm/sửa mapping trực tiếp — tự ghi <code>topic_map.txt</code>. <strong>Số media</strong> = batch mỗi lượt (mặc định 30). Số bài = tùy chọn thêm.</p>
         <div class="topic-row" style="margin-bottom:1rem">
           <label>Tên topic nguồn</label>
           <input id="new-map-topic" placeholder="vitamin" />
@@ -176,8 +176,12 @@
               <input id="new-map-cmd" placeholder="pro" />
             </div>
             <div>
+              <label>Số media</label>
+              <input id="new-map-media" type="number" min="0" placeholder="30" />
+            </div>
+            <div>
               <label>Số bài (tùy chọn)</label>
-              <input id="new-map-posts" type="number" min="0" placeholder="5" />
+              <input id="new-map-posts" type="number" min="0" placeholder="—" />
             </div>
           </div>
           <details style="margin:0.5rem 0">
@@ -419,6 +423,7 @@
     let channelSaveTimer = null;
     let mapPostSaveTimer = null;
     let mapPostDrafts = {};
+    let mapMediaDrafts = {};
     let allLinkDirty = false;
     let plainChannelCache = [];
     let plainTopicMapDirty = false;
@@ -616,6 +621,14 @@
           linkDrafts[el.id] = el.value;
         }
       });
+      document.querySelectorAll("#topics-list .map-media-in").forEach(el => {
+        const src = el.dataset.src;
+        const tid = el.dataset.tid;
+        const cmd = (el.dataset.cmd || "").toLowerCase();
+        if (document.activeElement === el || el.value !== "") {
+          mapMediaDrafts[`${src}:${tid}:${cmd}`] = el.value;
+        }
+      });
       document.querySelectorAll("#topics-list .map-post-in").forEach(el => {
         const src = el.dataset.src;
         const tid = el.dataset.tid;
@@ -643,9 +656,13 @@
         const name = t.topic_title || `topic ${t.topic_id || "?"}`;
         const cmds = (t.mapped_cmds || []).join(", ") || "?";
         const limits = t.map_post_limits || {};
+        const mlimits = t.map_media_limits || {};
         const limitBits = (t.mapped_cmds || []).map(c => {
-          const n = limits[String(c).toLowerCase()];
-          return n ? `/${c}:${n}b` : "";
+          const k = String(c).toLowerCase();
+          const bits = [];
+          if (mlimits[k]) bits.push(`${mlimits[k]}m`);
+          if (limits[k]) bits.push(`${limits[k]}b`);
+          return bits.length ? `/${c}:${bits.join("/")}` : "";
         }).filter(Boolean).join(" ");
         const displayLink = topicLinkDisplay(rowId, t.start_link);
         const savedLink = t.start_link || "";
@@ -659,12 +676,17 @@
         const primaryCmd = (t.mapped_cmds || [])[0] || "";
         const limitRow = (t.mapped_cmds || []).map(cmd => {
           const key = String(cmd).toLowerCase();
-          const draft = mapPostDrafts[`${t.src_chat_id || 0}:${t.topic_id || 0}:${key}`];
-          const val = draft !== undefined ? draft : (limits[key] || "");
-          return `<label style="font-size:0.85rem;margin-right:0.75rem">/${cmd}
-            <input type="number" min="0" class="map-post-in" style="width:64px;margin:0 0.25rem"
+          const postDraft = mapPostDrafts[`${t.src_chat_id || 0}:${t.topic_id || 0}:${key}`];
+          const mediaDraft = mapMediaDrafts[`${t.src_chat_id || 0}:${t.topic_id || 0}:${key}`];
+          const postVal = postDraft !== undefined ? postDraft : (limits[key] || "");
+          const mediaVal = mediaDraft !== undefined ? mediaDraft : (mlimits[key] || "");
+          return `<span style="font-size:0.85rem;margin-right:0.75rem">/${cmd}
+            <input type="number" min="0" class="map-media-in" style="width:56px;margin:0 0.2rem"
               data-src="${t.src_chat_id || 0}" data-tid="${t.topic_id || 0}" data-cmd="${cmd}"
-              value="${val}" placeholder="—" onchange="debounceMapPostLimit(this)" /> bài</label>`;
+              value="${mediaVal}" placeholder="30" title="Số media" onchange="debounceMapLimits(this)" /> media
+            <input type="number" min="0" class="map-post-in" style="width:56px;margin:0 0.2rem"
+              data-src="${t.src_chat_id || 0}" data-tid="${t.topic_id || 0}" data-cmd="${cmd}"
+              value="${postVal}" placeholder="—" title="Số bài" onchange="debounceMapLimits(this)" /> bài</span>`;
         }).join("");
         return `
         <div class="topic-row">
@@ -693,6 +715,7 @@
       const topic_title = $("new-map-topic").value.trim();
       const channel_cmd = $("new-map-cmd").value.trim().replace(/^\//, "");
       const post_count = +$("new-map-posts").value || null;
+      const media_count = +$("new-map-media").value || null;
       const src_chat_id = +$("new-map-chat").value || null;
       const topic_id = $("new-map-tid").value.trim() ? +$("new-map-tid").value : null;
       if (!topic_title || !channel_cmd) {
@@ -700,7 +723,7 @@
         return;
       }
       try {
-        const body = { topic_title, channel_cmd, post_count };
+        const body = { topic_title, channel_cmd, post_count, media_count };
         if (src_chat_id) body.src_chat_id = src_chat_id;
         if (topic_id != null) body.topic_id = topic_id;
         const r = await api("/topics/map", { method: "POST", body: JSON.stringify(body) });
@@ -708,6 +731,7 @@
         $("new-map-topic").value = "";
         $("new-map-cmd").value = "";
         $("new-map-posts").value = "";
+        $("new-map-media").value = "";
       } catch (e) {
         toast("Lỗi: " + (e.message || e));
       }
@@ -764,33 +788,43 @@
       return r;
     }
 
-    function debounceMapPostLimit(el) {
+    function debounceMapLimits(el) {
       const src = +el.dataset.src || 0;
       const tid = +el.dataset.tid || 0;
       const cmd = (el.dataset.cmd || "").toLowerCase();
-      mapPostDrafts[`${src}:${tid}:${cmd}`] = el.value;
+      const key = `${src}:${tid}:${cmd}`;
+      if (el.classList.contains("map-media-in")) mapMediaDrafts[key] = el.value;
+      else mapPostDrafts[key] = el.value;
       clearTimeout(mapPostSaveTimer);
-      mapPostSaveTimer = setTimeout(() => saveMapPostLimits(src, tid), 450);
+      mapPostSaveTimer = setTimeout(() => saveMapLimits(src, tid), 450);
     }
 
-    async function saveMapPostLimits(src, tid) {
-      const limits = {};
-      document.querySelectorAll("#topics-list .map-post-in").forEach(el => {
+    async function saveMapLimits(src, tid) {
+      const map_post_limits = {};
+      const map_media_limits = {};
+      document.querySelectorAll("#topics-list .map-post-in, #topics-list .map-media-in").forEach(el => {
         if (+el.dataset.src !== src || +el.dataset.tid !== tid) return;
         const cmd = (el.dataset.cmd || "").toLowerCase();
         const n = parseInt(el.value, 10);
-        if (cmd && n > 0) limits[cmd] = n;
+        if (!cmd || !n || n <= 0) return;
+        if (el.classList.contains("map-media-in")) map_media_limits[cmd] = n;
+        else map_post_limits[cmd] = n;
       });
       try {
-        await api(`/topics/${src}/${tid}/post-limits`, {
+        await api(`/topics/${src}/${tid}/map-limits`, {
           method: "PATCH",
-          body: JSON.stringify({ map_post_limits: limits }),
+          body: JSON.stringify({ map_post_limits, map_media_limits }),
         });
         Object.keys(mapPostDrafts).filter(k => k.startsWith(`${src}:${tid}:`)).forEach(k => delete mapPostDrafts[k]);
-        toast("Đã lưu số bài/map");
+        Object.keys(mapMediaDrafts).filter(k => k.startsWith(`${src}:${tid}:`)).forEach(k => delete mapMediaDrafts[k]);
+        toast("Đã lưu số media/bài");
       } catch (e) {
         toast("Lỗi: " + (e.message || e));
       }
+    }
+
+    async function saveMapPostLimits(src, tid) {
+      return saveMapLimits(src, tid);
     }
 
     function renderMeta(meta) {

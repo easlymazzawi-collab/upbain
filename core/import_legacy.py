@@ -21,7 +21,7 @@ from core.config_store import (
     upsert_topic_source,
 )
 from core.settings import CHANNELS_FILE
-from core.map_limits import parse_map_line, normalize_post_limits
+from core.map_limits import parse_map_line, normalize_post_limits, normalize_media_limits
 
 ROOT_FILES = {
     "channels.json": CHANNELS_FILE,
@@ -122,7 +122,7 @@ def parse_topic_map_text(text: str) -> list[dict[str, Any]]:
         if not left or not right:
             continue
 
-        cmd, post_n = parse_map_line(left, right, comment)
+        cmd, media_n, post_n = parse_map_line(left, right, comment)
         if not cmd:
             continue
 
@@ -149,16 +149,20 @@ def parse_topic_map_text(text: str) -> list[dict[str, Any]]:
             continue
         seen.add(key)
 
-        limits: dict[str, int] = {}
+        post_limits: dict[str, int] = {}
+        media_limits: dict[str, int] = {}
         if post_n and post_n > 0:
-            limits[cmd.lower()] = int(post_n)
+            post_limits[cmd.lower()] = int(post_n)
+        if media_n and media_n > 0:
+            media_limits[cmd.lower()] = int(media_n)
 
         entry: dict[str, Any] = {
             "src_chat_id": src_chat_id or 0,
             "topic_id": topic_id,
             "topic_title": topic_title,
             "mapped_cmds": [cmd],
-            "map_post_limits": limits,
+            "map_post_limits": post_limits,
+            "map_media_limits": media_limits,
             "enabled": True,
             "_imported_from": "topic_map.txt",
         }
@@ -176,8 +180,11 @@ def merge_topic_cmds(existing: dict, incoming: dict) -> dict:
     limits.update(normalize_post_limits(incoming.get("map_post_limits")))
     if limits:
         existing["map_post_limits"] = limits
+    mlimits = normalize_media_limits(incoming.get("map_media_limits"))
+    if mlimits:
+        existing.setdefault("map_media_limits", {}).update(mlimits)
     for k, v in incoming.items():
-        if k in ("mapped_cmds", "map_post_limits"):
+        if k in ("mapped_cmds", "map_post_limits", "map_media_limits"):
             continue
         if v is None or v == "" or v == 0:
             continue
