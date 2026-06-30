@@ -1983,21 +1983,40 @@ async def handler(client, msg: Message):
         schedule_update_menu(len(slot["content_msgs"]))
         return
 
-    # ══ 2. Lệnh trong intermediate chat ══════════════════════════════
+    # ══ 2. Lệnh trong intermediate chat hoặc nhóm thông báo ═══════════
     try:
         im_chat = get_intermediate_chat()
     except RuntimeError:
         return
-    if msg.chat.id != im_chat:
+
+    notify_id = None
+    try:
+        from core.settings import notify_chat_id as _notify_chat_id
+        notify_id = _notify_chat_id()
+    except Exception:
+        pass
+
+    in_im = msg.chat.id == im_chat
+    in_notify = notify_id and msg.chat.id == notify_id
+    if not in_im and not in_notify:
         return
 
-    text_raw = (msg.text or "")
+    text_raw = (msg.text or msg.caption or "")
     text     = text_raw.strip()
     if not text:
         return
 
     text     = normalize_command(text)
     text_raw = normalize_command(text_raw)
+
+    if in_notify:
+        if text == "/upngay" or text.startswith("/upngay "):
+            await cmd_upngay(text)
+        return
+
+    if text == "/upngay" or text.startswith("/upngay "):
+        await cmd_upngay(text)
+        return
 
     # /all
     if text == "/all":
@@ -2277,7 +2296,7 @@ async def handler(client, msg: Message):
     if text == "/allrun":
         ok = await run_all_task(
             app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
-            build_and_forward_all=_all_build_and_forward,
+            build_and_forward_all=_all_build_and_forward, force_run=True,
         )
         if not ok:
             await safe_send("⚠️ /all task chưa bật hoặc chưa chọn kênh trên web.")
@@ -2293,6 +2312,8 @@ async def handler(client, msg: Message):
             "  • /runtopic — lấy từ topic → xếp → forward → ghim bài kế\n"
             "  • /scan <chat> <topic> — xem kho media còn lại\n"
             "  • /allrun — chạy /all task (web chọn kênh)\n"
+            "  • /upngay — up ngay khi bot báo đủ bài (nhóm thông báo)\n"
+            "  • /upngay vitamin — up topic cụ thể\n"
             "  • Web: bot thông báo, lịch auto hằng ngày, real-time\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "🚀 Flow Saved Messages (legacy):\n"
@@ -2408,7 +2429,7 @@ async def _notify(text, parse_mode=None):
             pass
 
 
-async def _try_auto_source_topic(src_id, topic_id, topic_title, *, manual=False):
+async def _try_auto_source_topic(src_id, topic_id, topic_title, *, manual=False, force_run=False):
     cfg = load_auto_config()
     g = cfg.get("global", {})
     if not g.get("auto_run_enabled", True):
@@ -2442,16 +2463,18 @@ async def _try_auto_source_topic(src_id, topic_id, topic_title, *, manual=False)
         find_cmds_for_topic=find_cmds_for_topic_title,
         resolve_channels_by_cmd=resolve_channels_by_cmd,
         pick_next_rr=pick_next_rr,
+        force_run=force_run or manual,
     )
     asyncio.ensure_future(_after_regular())
 
 
-async def _stock_poll_run(kind, sid, tid, title):
-    """Retry topic/all khi đủ bài."""
+async def _stock_poll_run(kind, sid, tid, title, *, check_only=False, force_run=False):
+    """Kiểm tra kho — đủ bài thì offer /upngay, không up ngay."""
     if kind == "all_task":
         return await run_all_task(
             app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
             build_and_forward_all=_all_build_and_forward,
+            force_run=force_run, check_only=check_only,
         )
     return await run_topic_batch(
         app, sid, tid, title or "",
@@ -2460,14 +2483,68 @@ async def _stock_poll_run(kind, sid, tid, title):
         find_cmds_for_topic=find_cmds_for_topic_title,
         resolve_channels_by_cmd=resolve_channels_by_cmd,
         pick_next_rr=pick_next_rr,
+        force_run=force_run, check_only=check_only,
     )
+
+
+async def cmd_upngay(text: str):
+    from core.config_store import topic_key
+    from core.runtime import clear_pending_up, get_pending_up
+
+    parts = text.split(maxsplit=1)
+    arg = (parts[1] if len(parts) > 1 else "").strip().lower()
+    pending = get_pending_up()
+    if not pending:
+        await _notify("Không có topic nào đang chờ /upngay")
+        return
+
+    to_run: list[tuple[str, dict]] = []
+    for key, p in pending.items():
+        title = (p.get("title") or "").lower()
+        if arg and arg not in title and arg not in key.lower():
+            continue
+        to_run.append((key, p))
+
+    if arg and not to_run:
+        await _notify(f"Không thấy '{arg}' trong danh sách chờ /upngay")
+        return
+    if not to_run:
+        to_run = list(pending.items())
+
+    await _notify(f"▶ /upngay — chạy {len(to_run)} task...")
+    for key, p in to_run:
+        clear_pending_up(key)
+        kind = p.get("kind", "topic")
+        sid, tid = int(p["src_chat_id"]), int(p["topic_id"])
+        title = p.get("title") or ""
+        mark_run_start(f"/upngay {title}")
+        try:
+            if kind == "all_task":
+                ok = await run_all_task(
+                    app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
+                    build_and_forward_all=_all_build_and_forward, force_run=True,
+                )
+            else:
+                ok = await run_topic_batch(
+                    app, sid, tid, title,
+                    notify=_notify,
+                    build_and_forward=_source_build_and_forward,
+                    find_cmds_for_topic=find_cmds_for_topic_title,
+                    resolve_channels_by_cmd=resolve_channels_by_cmd,
+                    pick_next_rr=pick_next_rr,
+                    force_run=True,
+                )
+            mark_run_done("ok" if ok else "skip")
+        except Exception as e:
+            mark_run_done("error")
+            await _notify(f"❌ /upngay {title}: {type(e).__name__}")
 
 
 async def _forward_seq_all_channels(ch_id, seq):
     await forward_sequence_to_channel(ch_id, list(seq))
 
 
-async def _run_all_topics_only():
+async def _run_all_topics_only(*, force_run=False):
     cfg = load_auto_config()
     topics = list(cfg.get("topic_sources", {}).values())
     ran = 0
@@ -2479,13 +2556,15 @@ async def _run_all_topics_only():
         if not sid or not tid:
             continue
         mark_run_start(f"Topic {title or tid}")
-        await _try_auto_source_topic(sid, tid, title, manual=True)
+        await _try_auto_source_topic(sid, tid, title, manual=True, force_run=force_run)
         ran += 1
     return ran
 
 
 async def _run_scheduled_cycle(*, manual=False):
     """Chạy tất cả topic nguồn + /all task theo lịch web."""
+    from core.up_confirm import clear_all_pending_up
+
     cfg = load_auto_config()
     g = cfg.get("global", {})
     sch = g.get("schedule") or {}
@@ -2498,18 +2577,24 @@ async def _run_scheduled_cycle(*, manual=False):
         await _notify("⏸️ Lịch auto: auto_run đang tắt trên web.")
         return
 
+    n_cancel = clear_all_pending_up(
+        log_msg="⏰ Hủy chờ /upngay — chạy theo lịch chung"
+    )
+    if n_cancel:
+        append_log("info", f"Đã hủy {n_cancel} task /upngay (im lặng trên bot)")
+
     mark_run_start("Lịch auto hằng ngày")
     await _notify("🕐 Bắt đầu lượt auto theo lịch")
 
     if sch.get("run_all_topics", True):
-        await _run_all_topics_only()
+        await _run_all_topics_only(force_run=True)
 
     task = cfg.get("all_task", {})
     if sch.get("run_all_task_after", True) and task.get("enabled"):
         mark_run_start("/all task")
         await run_all_task(
             app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
-            build_and_forward_all=_all_build_and_forward,
+            build_and_forward_all=_all_build_and_forward, force_run=True,
         )
 
     mark_run_done("ok")
@@ -2552,13 +2637,14 @@ async def _execute_web_action(action: dict):
             await _run_scheduled_cycle(manual=True)
         elif atype == "run_all_topics":
             mark_run_start("Tất cả topic nguồn")
-            n = await _run_all_topics_only()
+            n = await _run_all_topics_only(force_run=True)
             mark_run_done("ok")
             await _notify(f"✅ Đã chạy {n} topic nguồn")
         elif atype == "run_all_task":
             mark_run_start("/all task")
             ok = await run_all_task(
-                app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels
+                app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
+                build_and_forward_all=_all_build_and_forward, force_run=True,
             )
             mark_run_done("ok" if ok else "skip")
             if not ok:
@@ -2568,7 +2654,7 @@ async def _execute_web_action(action: dict):
             tid = int(params["topic_id"])
             title = params.get("topic_title") or ""
             mark_run_start(f"Topic {title or tid}")
-            await _try_auto_source_topic(sid, tid, title, manual=True)
+            await _try_auto_source_topic(sid, tid, title, manual=True, force_run=True)
             mark_run_done("ok")
         elif atype == "scan_topic":
             sid = int(params["src_chat_id"])

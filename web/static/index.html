@@ -133,6 +133,11 @@
         <div class="stat"><div class="lbl">Lần chạy cuối</div><div class="val" id="st-last" style="font-size:0.95rem">—</div></div>
         <div class="stat"><div class="lbl">Lần chạy tiếp (lịch)</div><div class="val" id="st-next" style="font-size:0.95rem">—</div></div>
       </div>
+      <div class="card" id="pending-card" style="display:none">
+        <h2>✅ Đủ bài — chờ /upngay</h2>
+        <p class="hint">Gõ <code>/upngay</code> hoặc <code>/upngay tên_topic</code> trong nhóm thông báo. Không trả lời → im lặng.</p>
+        <div id="pending-list"></div>
+      </div>
       <div class="card" id="waiting-card" style="display:none">
         <h2>⏸ Đang chờ đủ bài</h2>
         <div id="waiting-list"></div>
@@ -310,8 +315,10 @@
         <input id="g-web-token" type="password" placeholder="để trống = không khóa" />
         <label><input type="checkbox" id="g-auto" /> Tự chạy khi detect topic đã map (cần START)</label>
         <label><input type="checkbox" id="g-full-batch" checked /> Chờ đủ bài mới up (24/7 — không up thiếu)</label>
+        <label><input type="checkbox" id="g-up-confirm" checked /> Đủ bài → báo /upngay, không up ngay</label>
         <div class="row">
           <div><label>Thử lại khi thiếu bài (giây)</label><input id="g-poll" type="number" value="300" min="60" /></div>
+          <div><label>Hủy /upngay trước lịch (giây)</label><input id="g-cancel-before" type="number" value="900" min="60" /></div>
         </div>
         <button class="primary" onclick="saveGlobal()">Lưu cài đặt</button>
       </div>
@@ -555,6 +562,24 @@
         : "<p>Chưa có kênh — /add hoặc Sync folder</p>";
     }
 
+    function renderPending(pending) {
+      const keys = Object.keys(pending || {});
+      const card = $("pending-card");
+      if (!keys.length) {
+        card.style.display = "none";
+        return;
+      }
+      card.style.display = "block";
+      $("pending-list").innerHTML = keys.map(k => {
+        const p = pending[k];
+        return `<div class="topic-row" style="margin-bottom:0.5rem;padding:0.75rem">
+          <strong>${p.title || k}</strong>
+          <span class="badge ok">${p.have_media}/${p.need_media} media</span>
+          <span style="color:var(--muted);font-size:0.85rem"> → gõ /upngay${p.title ? " " + p.title : ""}</span>
+        </div>`;
+      }).join("");
+    }
+
     function renderWaiting(waiting) {
       const keys = Object.keys(waiting || {});
       const card = $("waiting-card");
@@ -583,6 +608,7 @@
       $("st-last").textContent = fmtTs(rt.last_run_at);
       $("st-next").textContent = fmtTs(rt.next_run_at);
       renderWaiting(rt.waiting_topics);
+      renderPending(rt.pending_up);
       const log = (rt.log || []).slice().reverse();
       $("activity-log").innerHTML = log.length
         ? log.map(l => `<div class="log-line ${l.level}">[${fmtTs(l.ts)}] ${l.message}</div>`).join("")
@@ -617,7 +643,9 @@
       $("g-threshold").value = g.low_media_warn_threshold ?? 50;
       $("g-auto").checked = !!g.auto_run_enabled;
       $("g-full-batch").checked = g.require_full_batch !== false;
+      $("g-up-confirm").checked = g.require_up_confirm !== false;
       $("g-poll").value = g.stock_poll_interval_sec ?? 300;
+      $("g-cancel-before").value = g.confirm_cancel_before_sec ?? 900;
       $("g-port").value = g.web_port ?? 8080;
       $("g-xep-mode").value = g.xepbai_mode || "off";
       $("g-xep-wl").value = (g.xepbai_whitelist_cmds || []).join(", ");
@@ -786,7 +814,9 @@
         low_media_warn_threshold: +$("g-threshold").value || 50,
         auto_run_enabled: $("g-auto").checked,
         require_full_batch: $("g-full-batch").checked,
+        require_up_confirm: $("g-up-confirm").checked,
         stock_poll_interval_sec: +$("g-poll").value || 300,
+        confirm_cancel_before_sec: +$("g-cancel-before").value || 900,
         web_port: +$("g-port").value || 8080,
       };
       if (wt) body.web_token = wt;

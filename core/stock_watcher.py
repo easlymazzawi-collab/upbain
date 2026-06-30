@@ -1,23 +1,20 @@
-"""Chờ đủ bài — poll lại khi START + throttle thông báo."""
+"""Chờ đủ bài — poll kiểm tra, offer /upngay, không auto-up."""
 
 import asyncio
 import logging
-import time
 from typing import Awaitable, Callable
 
 from core.config_store import load_auto_config, topic_key
-from core.runtime import append_log, clear_topic_waiting, get_runtime, set_topic_waiting
+from core.runtime import get_runtime
 from core.settings import system_armed
+from core.stock_watcher import require_full_batch
+from core.up_confirm import expire_pending_near_schedule, is_pending
 
 log = logging.getLogger("stock_watcher")
 
 RunTopicFn = Callable[..., Awaitable[bool]]
 _last_wait_notify: dict[str, int] = {}
-_NOTIFY_COOLDOWN = 1800  # 30 phút / topic
-
-
-def require_full_batch() -> bool:
-    return bool(load_auto_config().get("global", {}).get("require_full_batch", True))
+_NOTIFY_COOLDOWN = 1800
 
 
 def poll_interval_sec() -> int:
@@ -32,6 +29,9 @@ async def notify_wait(
     *,
     force: bool = False,
 ) -> None:
+    import time
+    from core.runtime import append_log
+
     now = int(time.time())
     if not force and now - _last_wait_notify.get(key, 0) < _NOTIFY_COOLDOWN:
         append_log("info", text.replace("<b>", "").replace("</b>", ""))
@@ -41,20 +41,24 @@ async def notify_wait(
 
 
 def mark_waiting(key: str, title: str, have: int, need: int) -> None:
+    from core.runtime import set_topic_waiting
     set_topic_waiting(key, title=title, have_media=have, need_media=need)
 
 
 def mark_ready(key: str) -> None:
+    from core.runtime import clear_topic_waiting
     clear_topic_waiting(key)
     _last_wait_notify.pop(key, None)
 
 
 async def stock_poll_loop(run_topic: RunTopicFn) -> None:
-    """Khi START + require_full_batch: poll topic đang chờ đủ bài."""
+    """Poll topic thiếu bài; khi đủ → offer /upngay (không up ngay)."""
     running = False
     while True:
         interval = poll_interval_sec()
         try:
+            expire_pending_near_schedule(silent=True)
+
             if system_armed() and require_full_batch() and not running:
                 waiting = get_runtime().get("waiting_topics") or {}
                 if waiting:
@@ -77,6 +81,8 @@ async def stock_poll_loop(run_topic: RunTopicFn) -> None:
 
                     running = True
                     for key in list(waiting.keys()):
+                        if is_pending(key):
+                            continue
                         t = by_key.get(key)
                         if not t or not t.get("enabled", True):
                             continue
@@ -86,9 +92,9 @@ async def stock_poll_loop(run_topic: RunTopicFn) -> None:
                             continue
                         try:
                             if t.get("_is_all"):
-                                await run_topic("all_task", sid, tid, title)
+                                await run_topic("all_task", sid, tid, title, check_only=True)
                             else:
-                                await run_topic("topic", sid, tid, title)
+                                await run_topic("topic", sid, tid, title, check_only=True)
                         except Exception as e:
                             log.warning("stock poll %s: %s", key, e)
                         await asyncio.sleep(2)

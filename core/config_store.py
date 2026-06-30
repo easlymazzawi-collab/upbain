@@ -31,6 +31,8 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
         "auto_run_enabled": True,
         "system_armed": False,
         "require_full_batch": True,
+        "require_up_confirm": True,
+        "confirm_cancel_before_sec": 900,
         "stock_poll_interval_sec": 300,
         "schedule": {
             "enabled": False,

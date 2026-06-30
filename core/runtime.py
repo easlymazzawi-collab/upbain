@@ -21,6 +21,7 @@ DEFAULT_RUNTIME: dict[str, Any] = {
     "updated_at": 0,
     "log": [],
     "waiting_topics": {},
+    "pending_up": {},
 }
 
 
@@ -130,3 +131,60 @@ def clear_topic_waiting(key: str) -> None:
 def get_waiting_topics() -> dict:
     with _lock:
         return dict(_read().get("waiting_topics") or {})
+
+
+def set_pending_up(
+    key: str,
+    *,
+    title: str,
+    src_chat_id: int,
+    topic_id: int,
+    kind: str = "topic",
+    have_media: int,
+    need_media: int,
+    next_schedule_at: int = 0,
+) -> None:
+    with _lock:
+        rt = _read()
+        rt.setdefault("pending_up", {})[key] = {
+            "title": title,
+            "src_chat_id": src_chat_id,
+            "topic_id": topic_id,
+            "kind": kind,
+            "have_media": have_media,
+            "need_media": need_media,
+            "notified_at": int(time.time()),
+            "next_schedule_at": next_schedule_at,
+        }
+        wt = rt.get("waiting_topics") or {}
+        wt.pop(key, None)
+        rt["waiting_topics"] = wt
+        _write(rt)
+
+
+def clear_pending_up(key: str) -> None:
+    with _lock:
+        rt = _read()
+        pu = rt.get("pending_up") or {}
+        if key in pu:
+            pu.pop(key, None)
+            rt["pending_up"] = pu
+            _write(rt)
+
+
+def clear_all_pending_up(*, log_msg: str = "") -> int:
+    with _lock:
+        rt = _read()
+        pu = rt.get("pending_up") or {}
+        n = len(pu)
+        if n:
+            rt["pending_up"] = {}
+            _write(rt)
+    if log_msg and n:
+        append_log("info", log_msg)
+    return n
+
+
+def get_pending_up() -> dict:
+    with _lock:
+        return dict(_read().get("pending_up") or {})

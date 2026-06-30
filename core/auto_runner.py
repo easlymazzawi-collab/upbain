@@ -11,6 +11,7 @@ from core.pin_manager import advance_topic_pin
 from core.settings import CHANNELS_FILE
 from core.source_collector import collect_batch_from_topic, posts_to_content_refs
 from core.stock_watcher import mark_ready, mark_waiting, notify_wait, require_full_batch
+from core.up_confirm import expire_pending_near_schedule, is_pending, offer_up_confirm, require_up_confirm
 
 log = logging.getLogger("auto_runner")
 
@@ -38,6 +39,8 @@ async def run_topic_batch(
     resolve_channels_by_cmd: Callable[[str], list],
     pick_next_rr: Callable[[str, list], str],
     channels_no_ads_filter: Callable[[list, list[str]], list] | None = None,
+    force_run: bool = False,
+    check_only: bool = False,
 ) -> bool:
     """
     Full auto pipeline for one mapped source topic.
@@ -102,6 +105,21 @@ async def run_topic_batch(
             f"🔄 Tool tự thử lại mỗi {g.get('stock_poll_interval_sec') or 300}s",
         )
         return False
+
+    if require_up_confirm() and not force_run:
+        offered = await offer_up_confirm(
+            notify,
+            tkey,
+            title=topic_title or str(topic_id),
+            src_chat_id=src_chat_id,
+            topic_id=topic_id,
+            kind="topic",
+            have_media=n_media,
+            need_media=target_media,
+            header_html=_topic_header(topic_title, src_chat_id, topic_id),
+        )
+        if offered:
+            return False
 
     mark_ready(tkey)
     if result.warn:
@@ -208,6 +226,8 @@ async def run_all_task(
     notify: Callable[[str], Awaitable[None]],
     forward_sequence_fn: Callable[..., Awaitable[Any]],
     build_and_forward_all: Callable[..., Awaitable[None]] | None = None,
+    force_run: bool = False,
+    check_only: bool = False,
 ) -> bool:
     cfg = load_auto_config()
     task = cfg.get("all_task", {})
@@ -262,6 +282,21 @@ async def run_all_task(
             f"Chưa đủ: <b>{result.total_media}/{target_media}</b> media — chờ bổ sung",
         )
         return False
+
+    if require_up_confirm() and not force_run:
+        offered = await offer_up_confirm(
+            notify,
+            tkey,
+            title=task.get("source_title") or "/all",
+            src_chat_id=src_chat,
+            topic_id=src_topic,
+            kind="all_task",
+            have_media=result.total_media,
+            need_media=target_media,
+            header_html=f"<b>/all</b> · {msg_link(src_chat, src_topic, label='topic')}",
+        )
+        if offered:
+            return False
 
     mark_ready(tkey)
 

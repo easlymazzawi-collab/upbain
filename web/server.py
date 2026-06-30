@@ -106,6 +106,8 @@ class GlobalIn(BaseModel):
     low_media_warn_threshold: int = 50
     auto_run_enabled: bool = True
     require_full_batch: bool = True
+    require_up_confirm: bool = True
+    confirm_cancel_before_sec: int = 900
     stock_poll_interval_sec: int = 300
     system_armed: bool | None = None
     web_host: str = "0.0.0.0"
@@ -154,7 +156,12 @@ def _snapshot() -> dict[str, Any]:
     return {
         "config": {**cfg, "global": safe_global},
         "inventory": load_inventory(),
-        "runtime": {**rt, "next_run_at": next_ts or rt.get("next_run_at", 0), "waiting_topics": rt.get("waiting_topics") or {}},
+        "runtime": {
+            **rt,
+            "next_run_at": next_ts or rt.get("next_run_at", 0),
+            "waiting_topics": rt.get("waiting_topics") or {},
+            "pending_up": rt.get("pending_up") or {},
+        },
         "channels": channels,
         "folders": folders,
         "meta": {
