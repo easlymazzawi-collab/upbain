@@ -406,7 +406,11 @@
         <div class="row">
           <div><label>@xepbai</label><select id="g-xep-mode"><option value="off">off — tự xếp</option><option value="on">on — menu tay</option></select></div>
           <div><label>@xepbaiwhite</label><input id="g-xep-wl" placeholder="sinh, real" /></div>
-          <div><label>Content/ads</label><input id="g-cpa" type="number" /></div>
+          <div>
+            <label>Số content / 1 ads</label>
+            <input id="g-cpa" type="number" min="1" title="Mặc định khi @xepbai=off — tương đương /done1, /done2..." />
+            <p class="hint" style="margin:0.25rem 0 0">Tỉ lệ xếp bài tự động: mỗi 1 ads xen bao nhiêu content (vd: 1 = /done1). Chỉ dùng khi @xepbai = off.</p>
+          </div>
           <div><label>Mode</label><select id="g-mode"><option value="normal">normal</option><option value="xdone">xdone</option><option value="zdone">zdone</option></select></div>
         </div>
         <div class="row">
@@ -437,6 +441,7 @@
     let mapMediaDrafts = {};
     let linkDrafts = {};
     let allLinkDirty = false;
+    let globalFormDirty = false;
     let plainChannelCache = [];
     let plainTopicMapDirty = false;
     let plainSaveTimer = null;
@@ -1272,6 +1277,8 @@
     }
 
     function renderGlobal(g) {
+      const panel = $("global");
+      if (globalFormDirty || (document.activeElement && panel?.contains(document.activeElement))) return;
       $("g-cpa").value = g.xepbai_off_default_cpa ?? 1;
       $("g-mode").value = g.xepbai_off_default_mode || "normal";
       $("g-threshold").value = g.low_media_warn_threshold ?? 50;
@@ -1520,8 +1527,13 @@
         web_port: +$("g-port").value || 8080,
       };
       if (wt) body.web_token = wt;
-      await api("/global", { method: "PATCH", body: JSON.stringify(body) });
-      toast("Đã lưu cài đặt");
+      try {
+        await api("/global", { method: "PATCH", body: JSON.stringify(body) });
+        globalFormDirty = false;
+        toast("Đã lưu cài đặt");
+      } catch (e) {
+        toast("Lỗi lưu: " + (e.message || e));
+      }
     }
 
     async function init() {
@@ -1543,6 +1555,8 @@
 
     $("token").addEventListener("change", connectStream);
     $("all-source-link").addEventListener("input", () => { allLinkDirty = true; });
+    $("global").addEventListener("input", () => { globalFormDirty = true; });
+    $("global").addEventListener("change", () => { globalFormDirty = true; });
     $("topics-list").addEventListener("input", e => {
       if (e.target?.id && e.target.matches("input[type=text]")) {
         linkDrafts[e.target.id] = e.target.value;
