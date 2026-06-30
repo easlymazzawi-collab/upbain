@@ -37,7 +37,6 @@ import random
 import re as _re_cmd
 import time
 import traceback
-from dotenv import load_dotenv
 from pyrogram import Client
 from pyrogram.types import Message
 from pyrogram.errors import (
@@ -50,25 +49,14 @@ from pyrogram.errors import (
     ChatAdminRequired,
 )
 
-load_dotenv()
-
 from core.settings import (
     ads_chat_id as _ads_chat_id,
     api_hash as _api_hash,
     api_id as _api_id,
+    api_ready as _api_ready,
     intermediate_chat_id as _intermediate_chat_id,
     web_port as _web_port,
 )
-
-def _require_api():
-    aid, ahash = _api_id(), _api_hash()
-    if not aid or not ahash:
-        raise SystemExit(
-            "❌ Chưa có api_id/api_hash — cấu hình tab Telegram trên web hoặc .env"
-        )
-    return int(aid), str(ahash)
-
-API_ID, API_HASH = _require_api()
 
 
 def get_intermediate_chat() -> int:
@@ -121,7 +109,9 @@ SKIP_NOT_DEAD_ERRORS = (
     ChatAdminRequired,
 )
 
-app = Client("test_session", api_id=API_ID, api_hash=API_HASH)
+app: Client | None = None
+if _api_ready():
+    app = Client("test_session", api_id=int(_api_id()), api_hash=str(_api_hash()))
 
 fwd_lock             = asyncio.Lock()
 _channels_write_lock = asyncio.Lock()
@@ -1863,7 +1853,6 @@ def normalize_command(text: str):
 # Message handler
 # ─────────────────────────────────────────────────────────
 
-@app.on_message()
 async def handler(client, msg: Message):
 
     # ══ 1. Bài forward vào Saved Messages ══════════════════════════
@@ -2476,6 +2465,7 @@ def _start_web_server():
         import threading
         import uvicorn
         from web.server import app as web_app
+        from core.config_store import load_auto_config
         cfg = load_auto_config()
         host = cfg.get("global", {}).get("web_host", "0.0.0.0")
         port = _web_port()
@@ -2487,6 +2477,22 @@ def _start_web_server():
         log("WEB", f"Dashboard http://{host}:{port}")
     except Exception as e:
         log("WARN", f"Web server không khởi động: {e}")
+
+
+def _run_web_only():
+    """Chưa có API trên web — chỉ chạy dashboard để cấu hình lần đầu."""
+    import uvicorn
+    from web.server import app as web_app
+    from core.config_store import load_auto_config
+
+    cfg = load_auto_config()
+    host = cfg.get("global", {}).get("web_host", "0.0.0.0")
+    port = _web_port()
+    print(
+        f"\n⚙️  Chưa có api_id/api_hash trong data/auto_config.json\n"
+        f"🌐 Mở http://127.0.0.1:{port} → tab Telegram & Bot → nhập API → restart tool\n"
+    )
+    uvicorn.run(web_app, host=host, port=port, log_level="info")
 
 
 # ─────────────────────────────────────────────────────────
@@ -2556,4 +2562,9 @@ async def main():
     log("START", "📡 Đang lắng nghe + lịch auto + web real-time...")
     await asyncio.Event().wait()
 
-app.run(main())
+
+if app is not None:
+    app.on_message()(handler)
+    app.run(main())
+else:
+    _run_web_only()

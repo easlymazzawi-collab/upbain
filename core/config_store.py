@@ -6,7 +6,7 @@ import threading
 from copy import deepcopy
 from typing import Any
 
-DATA_DIR = os.getenv("DATA_DIR", "data")
+DATA_DIR = "data"
 AUTO_CONFIG_FILE = os.path.join(DATA_DIR, "auto_config.json")
 INVENTORY_FILE = os.path.join(DATA_DIR, "inventory.json")
 
