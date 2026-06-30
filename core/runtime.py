@@ -107,6 +107,11 @@ def mark_run_done(result: str = "ok") -> None:
         _write(rt)
 
 
+def pipeline_busy() -> bool:
+    with _lock:
+        return _read().get("status") == "running"
+
+
 def set_topic_waiting(key: str, *, title: str, have_media: int, need_media: int) -> None:
     with _lock:
         rt = _read()

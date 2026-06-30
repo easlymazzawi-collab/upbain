@@ -5,7 +5,7 @@ import logging
 from typing import Awaitable, Callable
 
 from core.config_store import load_auto_config, topic_key
-from core.runtime import get_runtime
+from core.runtime import get_runtime, pipeline_busy
 from core.settings import system_armed
 from core.up_confirm import expire_pending_near_schedule, is_pending
 
@@ -62,7 +62,7 @@ async def stock_poll_loop(run_topic: RunTopicFn) -> None:
         try:
             expire_pending_near_schedule(silent=True)
 
-            if system_armed() and require_full_batch() and not running:
+            if system_armed() and require_full_batch() and not running and not pipeline_busy():
                 waiting = get_runtime().get("waiting_topics") or {}
                 if waiting:
                     cfg = load_auto_config()

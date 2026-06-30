@@ -8,7 +8,7 @@ from typing import Any
 
 from core.all_config import batch_signature, default_plain_included, merge_plain_task, plain_skip_last
 from core.config_store import get_topic_source, load_auto_config
-from core.runtime import set_all_batch_preview
+from core.runtime import pipeline_busy, set_all_batch_preview
 from core.source_collector import collect_batch_from_topic
 
 log = logging.getLogger("all_batch_preview")
@@ -83,10 +83,11 @@ async def all_batch_preview_loop(client) -> None:
     """Poll batch /all để web hiển thị real-time."""
     while True:
         try:
-            cfg = load_auto_config()
-            task = cfg.get("all_task") or {}
-            if task.get("source_chat_id"):
-                await refresh_all_batch_preview(client)
+            if not pipeline_busy():
+                cfg = load_auto_config()
+                task = cfg.get("all_task") or {}
+                if task.get("source_chat_id"):
+                    await refresh_all_batch_preview(client)
         except Exception as e:
             log.warning("all batch preview: %s", e)
         await __import__("asyncio").sleep(POLL_INTERVAL_SEC)

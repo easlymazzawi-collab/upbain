@@ -91,17 +91,17 @@ RR_FILE           = "topic_rr.json"
 FOLDER_SYNC_INTERVAL_SEC = 3600
 DEAD_CHECK_INTERVAL_SEC  = 6 * 3600
 
-# [FIX-5] concurrent 2, delay 1.5s
-FWD_BASE_DELAY_SEC          = 1.5
-FWD_JITTER_SEC              = 0.5
+# Auto: tuần tự 1 kênh, chậm hơn để tránh FloodWait GetMessages
+FWD_BASE_DELAY_SEC          = 2.0
+FWD_JITTER_SEC              = 0.6
 FWD_MAX_RETRY               = 6
-FWD_BETWEEN_CHANNELS_SEC    = 2.0
+FWD_BETWEEN_CHANNELS_SEC    = 3.0
 FWD_MAX_CONCURRENT_CHANNELS = 2
 
 FWD_BATCH_SIZE      = 50
 FWD_BATCH_MIN_DELAY = 1.0
-FWD_GLOBAL_RATE     = 10.0
-FWD_GLOBAL_BURST    = 15
+FWD_GLOBAL_RATE     = 4.0
+FWD_GLOBAL_BURST    = 6
 
 TOPIC_DETECT_MAX_WAIT_SEC = 45
 MENU_DEBOUNCE_SEC         = 1.5
@@ -123,6 +123,7 @@ if _api_ready():
     app = Client("test_session", api_id=int(_api_id()), api_hash=str(_api_hash()))
 
 fwd_lock             = asyncio.Lock()
+_auto_pipeline_lock  = asyncio.Lock()
 _channels_write_lock = asyncio.Lock()
 
 # Global flood gate
@@ -163,6 +164,39 @@ def _fwd_bucket_get():
     if _fwd_bucket is None:
         _fwd_bucket = TokenBucket(FWD_GLOBAL_RATE, FWD_GLOBAL_BURST)
     return _fwd_bucket
+
+
+class ForwardFetchCache:
+    """Cache get_messages / get_media_group trong 1 lượt — tránh gọi lại cho từng kênh."""
+
+    __slots__ = ("_msgs", "_albums", "_lock")
+
+    def __init__(self):
+        self._msgs: dict[tuple[int, int], object] = {}
+        self._albums: dict[tuple[int, int], list] = {}
+        self._lock = asyncio.Lock()
+
+    async def get_message(self, src_chat, msg_id):
+        key = (int(src_chat), int(msg_id))
+        cached = self._msgs.get(key)
+        if cached is not None:
+            return cached
+        async with self._lock:
+            if key not in self._msgs:
+                await _fwd_bucket_get().acquire()
+                self._msgs[key] = await app.get_messages(key[0], key[1])
+            return self._msgs[key]
+
+    async def get_album(self, src_chat, msg_id):
+        key = (int(src_chat), int(msg_id))
+        cached = self._albums.get(key)
+        if cached is not None:
+            return cached
+        async with self._lock:
+            if key not in self._albums:
+                await _fwd_bucket_get().acquire()
+                self._albums[key] = await app.get_media_group(key[0], key[1])
+            return self._albums[key]
 
 
 # ─────────────────────────────────────────────────────────
@@ -1098,7 +1132,7 @@ async def raw_forward(from_peer, to_peer, ids: list):
 # [FIX-2] flood gate check bằng while loop trước mỗi attempt
 # ─────────────────────────────────────────────────────────
 
-async def forward_sequence_to_channel(target_id, sequence):
+async def forward_sequence_to_channel(target_id, sequence, *, fetch_cache: ForwardFetchCache | None = None):
     """
     sequence: list[(src_chat, msg_id)] — BẢN SAO RIÊNG cho kênh này (caller deepcopy)
     Returns: (sent_count, failed_items, dead_reason)
@@ -1131,8 +1165,11 @@ async def forward_sequence_to_channel(target_id, sequence):
                 await asyncio.sleep(remain)
 
             try:
-                await _fwd_bucket_get().acquire()
-                msg = await app.get_messages(src_chat, msg_id)
+                if fetch_cache:
+                    msg = await fetch_cache.get_message(src_chat, msg_id)
+                else:
+                    await _fwd_bucket_get().acquire()
+                    msg = await app.get_messages(src_chat, msg_id)
 
                 if msg.empty:
                     if attempt < FWD_MAX_RETRY - 1:
@@ -1155,15 +1192,21 @@ async def forward_sequence_to_channel(target_id, sequence):
                         sent_ok = True
                         break
                     seen_groups.add(key)
-                    album = await app.get_media_group(src_chat, msg_id)
+                    if fetch_cache:
+                        album = await fetch_cache.get_album(src_chat, msg_id)
+                    else:
+                        await _fwd_bucket_get().acquire()
+                        album = await app.get_media_group(src_chat, msg_id)
                     ids   = [m.id for m in album]
                     if not ids:
                         log("WARN", f"Album rỗng: {key}")
                         sent_ok = True
                         break
+                    await _fwd_bucket_get().acquire()
                     await raw_forward(from_peer, to_peer, ids)
                     log("FWD", f"  album {msg.media_group_id} ({len(ids)} items) → ch={target_id}")
                 else:
+                    await _fwd_bucket_get().acquire()
                     await raw_forward(from_peer, to_peer, [msg_id])
                     log("FWD", f"  msg={msg_id} → ch={target_id}")
 
@@ -1430,6 +1473,8 @@ async def do_all_forward(slot):
 
 async def do_forward_job(slot, results):
     sequence = slot["final_sequence"]
+    serial = bool(slot.get("_auto_forward_wait"))
+    cache = ForwardFetchCache()
 
     # Tracking theo id để tránh nhầm kênh trùng tên [FIX-C]
     ok_ids   = set()
@@ -1438,17 +1483,20 @@ async def do_forward_job(slot, results):
 
     dead_killed = []
     fail_recap  = []
-    sem         = asyncio.Semaphore(FWD_MAX_CONCURRENT_CHANNELS)
+    sem         = asyncio.Semaphore(1 if serial else FWD_MAX_CONCURRENT_CHANNELS)
 
-    async def _fwd_one(ch):
+    async def _fwd_one(ch, idx: int = 0, total: int = 0):
         ch_id    = ch["id"]
         ch_label = f"{ch['title']} (id={ch_id})"
+        if serial and total:
+            log("FWD", f"Auto {idx}/{total} → {ch.get('title', ch_id)}")
 
         async with sem:
             try:
-                # [FIX-A] mỗi kênh nhận bản sao sequence riêng
                 seq_copy = copy.copy(sequence)
-                sent, failed_items, dead_reason = await forward_sequence_to_channel(ch_id, seq_copy)
+                sent, failed_items, dead_reason = await forward_sequence_to_channel(
+                    ch_id, seq_copy, fetch_cache=cache,
+                )
 
                 if dead_reason:
                     dead_ids.add(ch_id)
@@ -1473,7 +1521,12 @@ async def do_forward_job(slot, results):
                 log("ERROR", f"forward to {ch_label}: {e}\n{traceback.format_exc()}")
 
     async with fwd_lock:
-        await asyncio.gather(*[_fwd_one(ch) for ch in results])
+        if serial:
+            total = len(results)
+            for i, ch in enumerate(results, 1):
+                await _fwd_one(ch, i, total)
+        else:
+            await asyncio.gather(*[_fwd_one(ch) for ch in results])
 
     # Summary
     lines = [f"✅ Xong! Forward tới {len(results)} kênh"]
@@ -1769,6 +1822,12 @@ async def cmd_checkchan(auto_clean: bool = False, silent: bool = False, branch: 
 async def task_auto_sync_folders():
     await asyncio.sleep(30)
     while True:
+        from core.runtime import pipeline_busy
+
+        if pipeline_busy():
+            log("AUTO-SYNC", "Hoãn — pipeline auto đang chạy")
+            await asyncio.sleep(120)
+            continue
         for branch in (BRANCH_ADS, BRANCH_PLAIN):
             folders = load_folders(branch)
             if not folders:
@@ -2403,6 +2462,20 @@ async def _source_build_and_forward(slot_data, channels, cmd):
     )
 
 
+async def _forward_seq_to_channels(channels, seq, *, label: str = "batch"):
+    """Up tuần tự từng kênh, dùng chung cache fetch."""
+    if not channels or not seq:
+        return
+    cache = ForwardFetchCache()
+    total = len(channels)
+    async with fwd_lock:
+        for i, ch in enumerate(channels, 1):
+            log("FWD", f"[{label}] kênh {i}/{total} → {ch.get('title', ch['id'])}")
+            await forward_sequence_to_channel(ch["id"], list(seq), fetch_cache=cache)
+            if i < total:
+                await asyncio.sleep(FWD_BETWEEN_CHANNELS_SEC + random.uniform(0, 1.0))
+
+
 async def _build_all_sequence_and_forward(slot_data, channels, *, use_ads: bool):
     if not channels:
         return
@@ -2424,8 +2497,7 @@ async def _build_all_sequence_and_forward(slot_data, channels, *, use_ads: bool)
     if not seq:
         await _notify("⚠️ /all: sequence rỗng sau xếp bài")
         return
-    for ch in channels:
-        await forward_sequence_to_channel(ch["id"], list(seq))
+    await _forward_seq_to_channels(channels, seq, label="/all")
 
 
 async def _all_build_and_forward(slot_data, channels):
@@ -2491,16 +2563,23 @@ async def _try_auto_source_topic(
     if key_src and not key_src.get("enabled", True):
         return
 
-    await run_topic_batch(
-        app, src_id, topic_id, topic_title or "",
-        notify=_notify,
-        build_and_forward=_source_build_and_forward,
-        find_cmds_for_topic=find_cmds_fn,
-        resolve_channels_by_cmd=resolve_fn,
-        pick_next_rr=pick_next_rr,
-        force_run=force_run or manual,
-        branch=branch,
-    )
+    async def _go():
+        await run_topic_batch(
+            app, src_id, topic_id, topic_title or "",
+            notify=_notify,
+            build_and_forward=_source_build_and_forward,
+            find_cmds_for_topic=find_cmds_fn,
+            resolve_channels_by_cmd=resolve_fn,
+            pick_next_rr=pick_next_rr,
+            force_run=force_run or manual,
+            branch=branch,
+        )
+
+    if _auto_pipeline_lock.locked():
+        await _go()
+    else:
+        async with _auto_pipeline_lock:
+            await _go()
 
 
 async def _stock_poll_run(kind, sid, tid, title, *, check_only=False, force_run=False, branch=BRANCH_ADS):
@@ -2613,42 +2692,43 @@ async def _run_scheduled_cycle(*, manual=False):
     """Chạy tất cả topic nguồn + /all task theo lịch web."""
     from core.up_confirm import clear_all_pending_up
 
-    cfg = load_auto_config()
-    g = cfg.get("global", {})
-    sch = g.get("schedule") or {}
+    async with _auto_pipeline_lock:
+        cfg = load_auto_config()
+        g = cfg.get("global", {})
+        sch = g.get("schedule") or {}
 
-    if not manual and not system_armed():
-        await _notify("⏸️ Lịch auto: chưa bấm START trên web.")
-        return
+        if not manual and not system_armed():
+            await _notify("⏸️ Lịch auto: chưa bấm START trên web.")
+            return
 
-    if not g.get("auto_run_enabled", True):
-        await _notify("⏸️ Lịch auto: auto_run đang tắt trên web.")
-        return
+        if not g.get("auto_run_enabled", True):
+            await _notify("⏸️ Lịch auto: auto_run đang tắt trên web.")
+            return
 
-    n_cancel = clear_all_pending_up(
-        log_msg="⏰ Hủy chờ /upngay — chạy theo lịch chung"
-    )
-    if n_cancel:
-        append_log("info", f"Đã hủy {n_cancel} task /upngay (im lặng trên bot)")
-
-    mark_run_start("Lịch auto hằng ngày")
-    await _notify("🕐 Bắt đầu lượt auto theo lịch")
-
-    if sch.get("run_all_topics", True):
-        await _run_all_topics_only(force_run=True)
-
-    task = cfg.get("all_task", {})
-    plain = cfg.get("plain_task") or {}
-    if sch.get("run_all_task_after", True) and (task.get("enabled") or plain.get("enabled")):
-        await _notify("📦 Tất cả topic đã up xong — bắt đầu /all task")
-        mark_run_start("/all task")
-        await run_all_task(
-            app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
-            build_and_forward_all=_all_build_and_forward, force_run=True,
+        n_cancel = clear_all_pending_up(
+            log_msg="⏰ Hủy chờ /upngay — chạy theo lịch chung"
         )
+        if n_cancel:
+            append_log("info", f"Đã hủy {n_cancel} task /upngay (im lặng trên bot)")
 
-    mark_run_done("ok")
-    await _notify("✅ Hoàn thành lượt auto theo lịch — chờ giờ chạy tiếp theo")
+        mark_run_start("Lịch auto hằng ngày")
+        await _notify("🕐 Bắt đầu lượt auto theo lịch")
+
+        if sch.get("run_all_topics", True):
+            await _run_all_topics_only(force_run=True)
+
+        task = cfg.get("all_task", {})
+        plain = cfg.get("plain_task") or {}
+        if sch.get("run_all_task_after", True) and (task.get("enabled") or plain.get("enabled")):
+            await _notify("📦 Tất cả topic đã up xong — bắt đầu /all task")
+            mark_run_start("/all task")
+            await run_all_task(
+                app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
+                build_and_forward_all=_all_build_and_forward, force_run=True,
+            )
+
+        mark_run_done("ok")
+        await _notify("✅ Hoàn thành lượt auto theo lịch — chờ giờ chạy tiếp theo")
 
 
 async def _manual_sync_folders(branch: str = BRANCH_ADS):
@@ -2696,14 +2776,21 @@ async def _execute_web_action(action: dict):
             mark_run_done("ok")
             await _notify(f"✅ Đã chạy {n} topic nguồn")
         elif atype == "run_all_task":
-            mark_run_start("/all task")
-            ok = await run_all_task(
-                app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
-                build_and_forward_all=_all_build_and_forward, force_run=True,
-            )
-            mark_run_done("ok" if ok else "skip")
-            if not ok:
-                await _notify("⚠️ /all task: kiểm tra chat nguồn + kênh đích trên web")
+            async def _all():
+                mark_run_start("/all task")
+                ok = await run_all_task(
+                    app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
+                    build_and_forward_all=_all_build_and_forward, force_run=True,
+                )
+                mark_run_done("ok" if ok else "skip")
+                if not ok:
+                    await _notify("⚠️ /all task: kiểm tra chat nguồn + kênh đích trên web")
+
+            if _auto_pipeline_lock.locked():
+                await _all()
+            else:
+                async with _auto_pipeline_lock:
+                    await _all()
         elif atype == "refresh_all_batch":
             from core.all_batch_preview import refresh_all_batch_preview
             p = await refresh_all_batch_preview(app)
