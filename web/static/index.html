@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UpBain Control v26</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --border: #2d3a4f;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #3b82f6;
+      --accent2: #10b981;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      line-height: 1.5;
+    }
+    header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    header h1 { margin: 0; font-size: 1.25rem; }
+    header span { color: var(--muted); font-size: 0.85rem; }
+    main { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+    .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .tabs button {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .tabs button.active { background: var(--accent); border-color: var(--accent); }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .card h2 { margin: 0 0 1rem; font-size: 1rem; }
+    label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.25rem; }
+    input, select, textarea {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      margin-bottom: 0.75rem;
+    }
+    .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; }
+    button.primary {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 0.6rem 1.2rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button.secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      background: #243044;
+    }
+    .badge.warn { background: #422006; color: var(--warn); }
+    .badge.ok { background: #064e3b; color: var(--accent2); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border); }
+    .ch-list { max-height: 320px; overflow-y: auto; }
+    .ch-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .toast {
+      position: fixed; bottom: 1rem; right: 1rem;
+      background: var(--accent2); color: #fff;
+      padding: 0.75rem 1rem; border-radius: 8px;
+      display: none; z-index: 99;
+    }
+    .hint { font-size: 0.8rem; color: var(--muted); margin-top: -0.5rem; margin-bottom: 0.75rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>UpBain Control</h1>
+      <span>v26 — nguồn topic · ghim · kho media · /all task</span>
+    </div>
+    <div>
+      <label style="display:inline;margin:0">Token API</label>
+      <input id="token" type="password" placeholder="WEB_TOKEN (nếu có)" style="width:180px;display:inline-block;margin:0" />
+    </div>
+  </header>
+
+  <main>
+    <div class="tabs">
+      <button class="active" data-tab="dashboard">Dashboard</button>
+      <button data-tab="topics">Topic nguồn</button>
+      <button data-tab="alltask">/all Task</button>
+      <button data-tab="global">Cài đặt</button>
+    </div>
+
+    <section id="dashboard" class="panel active">
+      <div class="card">
+        <h2>Kho media theo topic</h2>
+        <div id="inventory-table">Đang tải...</div>
+      </div>
+      <div class="card">
+        <h2>Hướng dẫn nhanh</h2>
+        <ul style="color:var(--muted);font-size:0.9rem;padding-left:1.2rem">
+          <li>Ghim bài <strong>tiếp theo cần up</strong> trong topic nguồn (1 bài = 1 đơn vị, album không tách).</li>
+          <li>Caption tin ghim: <code>30 media 2 ads</code> hoặc chỉnh override trên web.</li>
+          <li>Tool lấy bài từ topic → xếp ads → forward → unpin cũ + ghim bài kế.</li>
+          <li>Kênh <strong>no-ads</strong>: chỉ up content, không xen quảng cáo.</li>
+          <li>/all task: chọn kênh bên tab /all — chạy sau các lượt thường.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="topics" class="panel">
+      <div class="card">
+        <h2>Thêm / sửa topic nguồn</h2>
+        <div class="row">
+          <div><label>Chat ID nguồn</label><input id="t-src" type="number" placeholder="-1001234567890" /></div>
+          <div><label>Topic ID</label><input id="t-topic" type="number" placeholder="5" /></div>
+          <div><label>Tên topic</label><input id="t-title" placeholder="vitamin" /></div>
+        </div>
+        <div class="row">
+          <div><label>Media / lượt (override)</label><input id="t-media" type="number" placeholder="30" /></div>
+          <div><label>Ads / lượt (override)</label><input id="t-ads" type="number" placeholder="2" /></div>
+          <div><label>Media mỗi vòng RR</label><input id="t-round" type="number" placeholder="8" /></div>
+          <div><label>/done mặc định (CPA)</label><input id="t-cpa" type="number" placeholder="1" /></div>
+        </div>
+        <label>Map lệnh kênh (phân cách dấu phẩy)</label>
+        <input id="t-cmds" placeholder="pro, real" />
+        <label>Kênh no-ads (lệnh, phân cách dấu phẩy)</label>
+        <input id="t-no-ads" placeholder="real, preview" />
+        <p class="hint">Scoped map: chat_id:topic trong topic_map.txt vẫn dùng được.</p>
+        <button class="primary" onclick="saveTopic()">Lưu topic</button>
+      </div>
+      <div class="card">
+        <h2>Danh sách topic đã cấu hình</h2>
+        <div id="topics-list"></div>
+      </div>
+    </section>
+
+    <section id="alltask" class="panel">
+      <div class="card">
+        <h2>/all Task — up cuối cùng</h2>
+        <label><input type="checkbox" id="all-enabled" /> Bật /all task</label>
+        <div class="row">
+          <div><label>Chat nguồn riêng</label><input id="all-src" type="number" /></div>
+          <div><label>Topic ID nguồn</label><input id="all-topic" type="number" /></div>
+        </div>
+        <label><input type="checkbox" id="all-after" checked /> Chạy sau khi xong các lượt thường</label>
+        <h2 style="margin-top:1rem">Chọn kênh đích</h2>
+        <div style="margin-bottom:0.5rem">
+          <button class="secondary" onclick="selectAllCh(true)">Chọn tất cả</button>
+          <button class="secondary" onclick="selectAllCh(false)">Bỏ chọn</button>
+        </div>
+        <div class="ch-list" id="all-channels"></div>
+        <button class="primary" style="margin-top:1rem" onclick="saveAllTask()">Lưu /all task</button>
+      </div>
+    </section>
+
+    <section id="global" class="panel">
+      <div class="card">
+        <h2>xepbai OFF — mặc định</h2>
+        <div class="row">
+          <div><label>Content / ads (/doneN)</label><input id="g-cpa" type="number" /></div>
+          <div><label>Mode xếp</label>
+            <select id="g-mode">
+              <option value="normal">normal</option>
+              <option value="xdone">xdone</option>
+              <option value="zdone">zdone</option>
+            </select>
+          </div>
+          <div><label>Cảnh báo kho &lt;= media</label><input id="g-threshold" type="number" /></div>
+        </div>
+        <label><input type="checkbox" id="g-auto" /> Tự chạy khi detect topic đã map nguồn</label>
+        <button class="primary" onclick="saveGlobal()">Lưu cài đặt</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+
+    function headers() {
+      const t = $("token").value.trim();
+      const h = { "Content-Type": "application/json" };
+      if (t) h["X-Token"] = t;
+      return h;
+    }
+
+    function toast(msg) {
+      const el = $("toast");
+      el.textContent = msg;
+      el.style.display = "block";
+      setTimeout(() => el.style.display = "none", 2500);
+    }
+
+    document.querySelectorAll(".tabs button").forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll(".tabs button").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+        btn.classList.add("active");
+        $(btn.dataset.tab).classList.add("active");
+      };
+    });
+
+    async function api(path, opts = {}) {
+      const r = await fetch("/api" + path, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    }
+
+    async function loadInventory() {
+      const inv = await api("/inventory");
+      const topics = inv.topics || {};
+      const keys = Object.keys(topics);
+      if (!keys.length) {
+        $("inventory-table").innerHTML = "<p style='color:var(--muted)'>Chưa có dữ liệu kho.</p>";
+        return;
+      }
+      let html = "<table><tr><th>Topic</th><th>Còn media</th><th>Còn bài</th><th>Batch cuối</th></tr>";
+      for (const k of keys) {
+        const t = topics[k];
+        const low = t.remaining_media <= 50;
+        html += `<tr>
+          <td><code>${k}</code></td>
+          <td><span class="badge ${low ? "warn" : "ok"}">${t.remaining_media ?? 0}</span></td>
+          <td>${t.remaining_posts ?? 0}</td>
+          <td>${t.last_batch_media ?? 0} media / ${t.last_batch_posts ?? 0} bài</td>
+        </tr>`;
+      }
+      html += "</table>";
+      $("inventory-table").innerHTML = html;
+    }
+
+    async function loadTopics() {
+      const list = await api("/topics");
+      if (!list.length) {
+        $("topics-list").innerHTML = "<p style='color:var(--muted)'>Chưa có topic nào.</p>";
+        return;
+      }
+      $("topics-list").innerHTML = list.map(t => `
+        <div style="padding:0.75rem 0;border-bottom:1px solid var(--border)">
+          <strong>${t.topic_title || t.topic_id}</strong>
+          <span class="badge">${t.src_chat_id}:${t.topic_id}</span>
+          <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem">
+            media=${t.target_media_override || "pin"} · ads=${t.target_ads_override || "pin"} ·
+            RR=${t.media_per_round || "-"} · cmds=${(t.mapped_cmds || []).join(",")}
+            · no-ads=${(t.channels_no_ads || []).join(",")}
+          </div>
+        </div>`).join("");
+    }
+
+    async function saveTopic() {
+      const body = {
+        src_chat_id: +$("t-src").value,
+        topic_id: +$("t-topic").value,
+        topic_title: $("t-title").value.trim(),
+        target_media_override: +$("t-media").value || null,
+        target_ads_override: +$("t-ads").value || null,
+        media_per_round: +$("t-round").value || null,
+        default_cpa: +$("t-cpa").value || null,
+        mapped_cmds: $("t-cmds").value.split(",").map(s => s.trim()).filter(Boolean),
+        channels_no_ads: $("t-no-ads").value.split(",").map(s => s.trim()).filter(Boolean),
+        enabled: true,
+      };
+      await api("/topics", { method: "POST", body: JSON.stringify(body) });
+      toast("Đã lưu topic");
+      loadTopics();
+      loadInventory();
+    }
+
+    let channelCache = [];
+
+    async function loadChannels() {
+      channelCache = await api("/channels");
+      const task = await api("/all-task");
+      const sel = new Set((task.selected_channel_ids || []).map(String));
+      $("all-enabled").checked = !!task.enabled;
+      $("all-src").value = task.source_chat_id || "";
+      $("all-topic").value = task.source_topic_id || "";
+      $("all-after").checked = task.run_after_regular !== false;
+      $("all-channels").innerHTML = channelCache.map((c, i) => `
+        <label class="ch-item">
+          <input type="checkbox" class="all-ch" value="${c.id}" ${sel.has(String(c.id)) ? "checked" : ""} />
+          <span>${i + 1}. ${c.title} <span class="badge">${c.id}</span></span>
+        </label>`).join("") || "<p>Chưa có kênh — dùng /add trên bot.</p>";
+    }
+
+    function selectAllCh(on) {
+      document.querySelectorAll(".all-ch").forEach(el => el.checked = on);
+    }
+
+    async function saveAllTask() {
+      const ids = [...document.querySelectorAll(".all-ch:checked")].map(el => +el.value);
+      const body = {
+        enabled: $("all-enabled").checked,
+        source_chat_id: +$("all-src").value || null,
+        source_topic_id: +$("all-topic").value || null,
+        selected_channel_ids: ids,
+        run_after_regular: $("all-after").checked,
+      };
+      await api("/all-task", { method: "POST", body: JSON.stringify(body) });
+      toast(`Đã lưu /all task — ${ids.length} kênh`);
+    }
+
+    async function loadGlobal() {
+      const cfg = await api("/config");
+      const g = cfg.global || {};
+      $("g-cpa").value = g.xepbai_off_default_cpa ?? 1;
+      $("g-mode").value = g.xepbai_off_default_mode || "normal";
+      $("g-threshold").value = g.low_media_warn_threshold ?? 50;
+      $("g-auto").checked = !!g.auto_run_enabled;
+    }
+
+    async function saveGlobal() {
+      await api("/global", {
+        method: "PATCH",
+        body: JSON.stringify({
+          xepbai_off_default_cpa: +$("g-cpa").value || 1,
+          xepbai_off_default_mode: $("g-mode").value,
+          low_media_warn_threshold: +$("g-threshold").value || 50,
+          auto_run_enabled: $("g-auto").checked,
+        }),
+      });
+      toast("Đã lưu cài đặt");
+    }
+
+    async function init() {
+      try {
+        await Promise.all([loadInventory(), loadTopics(), loadChannels(), loadGlobal()]);
+      } catch (e) {
+        toast("Lỗi: " + e.message);
+      }
+    }
+    init();
+    setInterval(loadInventory, 30000);
+  </script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 """
-tool__tauto_nostage.py  v25
+tool__tauto_nostage.py  v26
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Luồng hoạt động:
   1. Forward bài vào Saved Messages
@@ -916,6 +916,12 @@ async def _auto_process_batch(slot, n, gen=None):
             await safe_send(text)
             return
 
+        tid = slot.get("topic_id")
+        sid = slot.get("topic_src_id")
+        if sid and tid and load_auto_config().get("global", {}).get("auto_run_enabled", True):
+            await _try_auto_source_topic(sid, tid, slot.get("topic_title") or "")
+            return
+
         if not slot["ads_msgs"]:
             await load_ads_into(slot)
         ads_count = max(1, len(slot["ads_msgs"]))
@@ -1205,7 +1211,8 @@ async def build_sequence_for_slot(slot, content_per_ads=1, mode="normal"):
     contents     = slot["content_msgs"]
     n            = slot.get("_batch_n") or len(contents)
     ads_chat     = slot["ads_chat_id"] or ADS_CHAT
-    content_chat = SAVED_MESSAGES
+    content_chat = slot.get("content_chat") or SAVED_MESSAGES
+    skip_ads     = slot.get("skip_ads", False)
     src_id       = slot.get("topic_src_id")
     media_cnt    = slot.get("total_media_count", 0)
     media_str    = f"{n} bài / {media_cnt} media" if media_cnt else f"{n} bài"
@@ -1217,12 +1224,16 @@ async def build_sequence_for_slot(slot, content_per_ads=1, mode="normal"):
         if not _is_valid_topic_title(slot.get("topic_title")):
             await _topic_fallback_once(slot, app)
 
-    if not slot["ads_msgs"]:
-        log("BUILD", "Không có ads — forward content không xen ads")
+    if skip_ads or not slot["ads_msgs"]:
+        log("BUILD", "Không xen ads — forward content only")
         sequence = [(content_chat, mid) for mid in contents]
         slot["final_sequence"]   = sequence
         slot["awaiting_channel"] = True
         slot["waiting"]          = False
+        auto_chs = slot.get("_auto_forward_channels")
+        if auto_chs:
+            await _start_forward(slot, auto_chs, slot.get("_auto_forward_cmd", ""))
+            return
         channels            = load_channels()
         chan_lines, cmd_map = build_channel_commands(channels)
         slot["channel_commands"] = cmd_map
@@ -1356,6 +1367,11 @@ async def build_sequence_for_slot(slot, content_per_ads=1, mode="normal"):
     channels            = load_channels()
     chan_lines, cmd_map = build_channel_commands(channels)
     slot["channel_commands"] = cmd_map
+
+    auto_chs = slot.get("_auto_forward_channels")
+    if auto_chs:
+        await _start_forward(slot, auto_chs, slot.get("_auto_forward_cmd", ""))
+        return
 
     hint = ""
     if slot.get("topic_title") and not mapped_cmds:
@@ -2204,11 +2220,53 @@ async def handler(client, msg: Message):
         await build_sequence(cpa)
         return
 
+    if text == "/runtopic" or text.startswith("/runtopic "):
+        parts = text.split()
+        slot  = active_slot()
+        if len(parts) >= 3:
+            try:
+                sid, tid = int(parts[1]), int(parts[2])
+                title = parts[3] if len(parts) > 3 else ""
+                await _try_auto_source_topic(sid, tid, title)
+            except ValueError:
+                await safe_send("❌ Dùng: /runtopic <chat_id> <topic_id> [tên]")
+        elif slot.get("topic_src_id") and slot.get("topic_id"):
+            await _try_auto_source_topic(
+                slot["topic_src_id"], slot["topic_id"], slot.get("topic_title") or ""
+            )
+        else:
+            await safe_send("❌ Chưa có topic. Dùng: /runtopic <chat_id> <topic_id>")
+        return
+
+    if text == "/scan" or text.startswith("/scan "):
+        parts = text.split()
+        if len(parts) >= 3:
+            await cmd_scan_inventory(int(parts[1]), int(parts[2]))
+        else:
+            await safe_send("❌ Dùng: /scan <chat_id> <topic_id>")
+        return
+
+    if text == "/allrun":
+        ok = await run_all_task(
+            app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels
+        )
+        if not ok:
+            await safe_send("⚠️ /all task chưa bật hoặc chưa chọn kênh trên web.")
+        return
+
     if text == "/help":
         await safe_send(
-            "📖 Hướng dẫn v25\n"
+            "📖 Hướng dẫn v26\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "🚀 Flow:\n"
+            "🚀 Auto nguồn topic (v26):\n"
+            "  • Ghim bài kế tiếp cần up trong topic nguồn\n"
+            "  • Caption ghim: 30 media 2 ads (hoặc cấu hình web)\n"
+            "  • /runtopic — lấy từ topic → xếp → forward → ghim bài kế\n"
+            "  • /scan <chat> <topic> — xem kho media còn lại\n"
+            "  • /allrun — chạy /all task (web chọn kênh)\n"
+            "  • Web dashboard: cấu hình topic, no-ads, /all task\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "🚀 Flow Saved Messages (legacy):\n"
             "  1. Forward bài vào Saved Messages\n"
             "  2. /done* / /xdone / /zdone → tool xếp sequence\n"
             "  3. Gõ tên kênh → forward thẳng\n"
@@ -2252,6 +2310,107 @@ async def handler(client, msg: Message):
 
 
 # ─────────────────────────────────────────────────────────
+# v26 — Auto source topic + Web control
+# ─────────────────────────────────────────────────────────
+
+from core.config_store import get_topic_source, load_auto_config, upsert_topic_source
+from core.auto_runner import run_topic_batch, run_all_task
+from core.source_collector import collect_batch_from_topic
+from core.inventory import get_all_inventory
+
+
+async def _source_build_and_forward(slot_data, channels, cmd):
+    slot = make_slot()
+    slot["content_msgs"]        = list(slot_data["content_msgs"])
+    slot["content_chat"]        = slot_data["content_chat"]
+    slot["total_media_count"]   = slot_data.get("total_media_count", 0)
+    slot["topic_title"]         = slot_data.get("topic_title")
+    slot["topic_src_id"]        = slot_data.get("topic_src_id")
+    slot["_batch_n"]            = len(slot["content_msgs"])
+    slot["skip_ads"]            = not slot_data.get("use_ads", True)
+    slot["_auto_forward_channels"] = channels
+    slot["_auto_forward_cmd"]   = f"/{cmd}"
+    if slot_data.get("use_ads") and not slot["ads_msgs"]:
+        await load_ads_into(slot)
+    await build_sequence_for_slot(
+        slot,
+        content_per_ads=slot_data.get("default_cpa", 1),
+        mode=slot_data.get("mode", "normal"),
+    )
+
+
+async def _notify(text):
+    await safe_send(text)
+
+
+async def _try_auto_source_topic(src_id, topic_id, topic_title):
+    cfg = load_auto_config()
+    if not cfg.get("global", {}).get("auto_run_enabled", True):
+        return
+    key_src = get_topic_source(src_id, topic_id)
+    if not key_src and not find_cmds_for_topic_title(topic_title, src_id):
+        return
+    if key_src and not key_src.get("enabled", True):
+        return
+
+    async def _after_regular():
+        task = load_auto_config().get("all_task", {})
+        if task.get("enabled") and task.get("run_after_regular"):
+            await run_all_task(app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels)
+
+    async def _fwd_seq(ch_id, seq):
+        await forward_sequence_to_channel(ch_id, list(seq))
+
+    async def _fwd_all(ch_id, seq):
+        await forward_sequence_to_channel(ch_id, list(seq))
+
+    await run_topic_batch(
+        app, src_id, topic_id, topic_title or "",
+        notify=_notify,
+        build_and_forward=_source_build_and_forward,
+        find_cmds_for_topic=find_cmds_for_topic_title,
+        resolve_channels_by_cmd=resolve_channels_by_cmd,
+        pick_next_rr=pick_next_rr,
+    )
+    asyncio.ensure_future(_after_regular())
+
+
+async def _forward_seq_all_channels(ch_id, seq):
+    await forward_sequence_to_channel(ch_id, list(seq))
+
+
+async def cmd_scan_inventory(src_id: int, topic_id: int):
+    cfg = load_auto_config()
+    tcfg = get_topic_source(src_id, topic_id) or {"enabled": True}
+    result = await collect_batch_from_topic(app, src_id, topic_id, tcfg, cfg.get("global", {}))
+    await safe_send(
+        f"📊 Scan {src_id}:{topic_id}\n"
+        f"  Ghim: {result.pinned_msg_id} | cursor → {result.next_pin_msg_id}\n"
+        f"  Kho: {result.remaining_media} media / {result.remaining_posts} bài\n"
+        f"  Target: {result.params.get('target_media')} media / {result.params.get('target_ads')} ads\n"
+        + (f"  {result.warn}" if result.warn else "")
+    )
+
+
+def _start_web_server():
+    try:
+        import threading
+        import uvicorn
+        from web.server import app as web_app
+        cfg = load_auto_config()
+        host = cfg.get("global", {}).get("web_host", "0.0.0.0")
+        port = int(cfg.get("global", {}).get("web_port", 8080))
+
+        def _run():
+            uvicorn.run(web_app, host=host, port=port, log_level="warning")
+
+        threading.Thread(target=_run, daemon=True).start()
+        log("WEB", f"Dashboard http://{host}:{port}")
+    except Exception as e:
+        log("WARN", f"Web server không khởi động: {e}")
+
+
+# ─────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────
 
@@ -2290,17 +2449,21 @@ async def main():
 
     n_folders  = len(load_folders())
     n_channels = len(load_channels())
-    await safe_send(
-        "🤖 Userbot v25 đã khởi động!\n"
-        f"📡 {n_channels} kênh • 📁 {n_folders} folder auto-sync\n"
-        "➡️ Forward bài vào Saved Messages → /done* → nhập tên kênh.\n"
-        "Gõ /help để xem hướng dẫn."
-    )
+    web_port   = load_auto_config().get("global", {}).get("web_port", 8080)
 
     asyncio.ensure_future(task_auto_sync_folders())
     asyncio.ensure_future(task_auto_clean_dead())
+    _start_web_server()
 
-    log("START", "📡 Đang lắng nghe + auto-tasks chạy nền...")
+    await safe_send(
+        "🤖 Userbot v26 đã khởi động!\n"
+        f"📡 {n_channels} kênh • 📁 {n_folders} folder\n"
+        f"🌐 Web: http://127.0.0.1:{web_port}\n"
+        "🔄 Auto nguồn topic (tin ghim) — /runtopic /scan /allrun\n"
+        "Gõ /help để xem hướng dẫn."
+    )
+
+    log("START", "📡 Đang lắng nghe + auto-tasks + web...")
     await asyncio.Event().wait()
 
 app.run(main())
