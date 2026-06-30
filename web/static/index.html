@@ -398,6 +398,8 @@
     const $ = id => document.getElementById(id);
     let channelCache = [];
     let channelSaveTimer = null;
+    let linkDrafts = {};
+    let allLinkDirty = false;
     let plainChannelCache = [];
     let plainTopicMapDirty = false;
     let plainSaveTimer = null;
@@ -587,7 +589,22 @@
       return `link-${t.src_chat_id || 0}-${t.topic_id || 0}-${title}`;
     }
 
+    function captureTopicLinkDrafts() {
+      document.querySelectorAll("#topics-list input[type=text]").forEach(el => {
+        if (!el.id) return;
+        if (document.activeElement === el || el.value.trim()) {
+          linkDrafts[el.id] = el.value;
+        }
+      });
+    }
+
+    function topicLinkDisplay(rowId, saved) {
+      if (linkDrafts[rowId] !== undefined) return linkDrafts[rowId];
+      return saved || "";
+    }
+
     function renderTopics(list) {
+      captureTopicLinkDrafts();
       if (!list.length) {
         $("topics-list").innerHTML =
           "<p style='color:var(--muted)'>Chưa có map — tab <strong>Import</strong> → upload <code>topic_map.txt</code></p>";
@@ -597,17 +614,22 @@
         const rowId = topicRowId(t);
         const name = t.topic_title || `topic ${t.topic_id || "?"}`;
         const cmds = (t.mapped_cmds || []).join(", ") || "?";
-        const status = t.start_link
+        const displayLink = topicLinkDisplay(rowId, t.start_link);
+        const savedLink = t.start_link || "";
+        const status = savedLink && displayLink.trim() === savedLink
           ? `<span class="badge ok">✓ msg ${t.start_msg_id || "?"}</span>`
-          : `<span class="badge warn">chưa có link</span>`;
+          : (displayLink.trim()
+            ? `<span class="badge warn">chưa lưu</span>`
+            : `<span class="badge warn">chưa có link</span>`);
         const safeTitle = (t.topic_title || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        const escLink = displayLink.replace(/"/g, "&quot;");
         return `
         <div class="topic-row">
           <div class="topic-info">
             <strong>${name}</strong> → /${cmds} ${status}
           </div>
           <div class="topic-link-row">
-            <input id="${rowId}" type="text" placeholder="https://t.me/c/1234567890/5/678" value="${(t.start_link || "").replace(/"/g, "&quot;")}" />
+            <input id="${rowId}" type="text" placeholder="https://t.me/c/1234567890/5/678" value="${escLink}" />
             <button class="primary" onclick="saveTopicLink(${t.src_chat_id || 0}, ${t.topic_id || 0}, '${safeTitle}')">💾 Lưu link</button>
             <button class="run" onclick="saveTopicLink(${t.src_chat_id || 0}, ${t.topic_id || 0}, '${safeTitle}').then(r=>runTopic(r.src_chat_id,r.topic_id,r.topic_title||'${safeTitle}'))">▶ Chạy</button>
           </div>
@@ -632,6 +654,7 @@
         }),
       });
       toast("Đã lưu link — tool lấy bài từ tin này");
+      delete linkDrafts[rowId];
       return r;
     }
 
@@ -812,11 +835,17 @@
         : "<p>Chưa có kênh — thêm folder & sync (tab Up bài hoặc Kênh)</p>";
     }
 
+    function syncAllSourceLink(task) {
+      const el = $("all-source-link");
+      if (allLinkDirty || document.activeElement === el) return;
+      el.value = task.start_link || "";
+    }
+
     function renderAllTask(task, channels) {
       $("all-enabled").checked = !!task.enabled;
       $("all-status").innerHTML = task.enabled
         ? `<span class="badge ok">ON</span>` : `<span class="badge warn">OFF</span>`;
-      $("all-source-link").value = task.start_link || "";
+      syncAllSourceLink(task);
       const srcOk = !!task.source_chat_id;
       const tid = task.source_topic_id || 0;
       $("all-source-hint").textContent = srcOk
@@ -1148,6 +1177,8 @@
       setAllSaveStatus("armed", "⏳ Đang lưu link...");
       try {
         const r = await patchAll({ source_link: link }, { quiet: true });
+        allLinkDirty = false;
+        syncAllSourceLink(r);
         setAllSaveStatus("ok", r.message || "✓ Đã lưu — đang xếp hàng quét batch...");
         toast(r.message || "Đã lưu link");
         setAllSaveStatus("armed", "⏳ Userbot quét batch (~2s)...");
@@ -1229,6 +1260,12 @@
     }
 
     $("token").addEventListener("change", connectStream);
+    $("all-source-link").addEventListener("input", () => { allLinkDirty = true; });
+    $("topics-list").addEventListener("input", e => {
+      if (e.target?.id && e.target.matches("input[type=text]")) {
+        linkDrafts[e.target.id] = e.target.value;
+      }
+    });
     $("plain-topic-map").addEventListener("input", () => { plainTopicMapDirty = true; });
     setupImport();
     renderImportList();
