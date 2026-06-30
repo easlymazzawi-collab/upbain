@@ -4,6 +4,19 @@ Telegram userbot auto-forward với **nguồn topic**, **tin ghim**, **web dashb
 
 **Không dùng `.env`** — mọi cấu hình qua web (`data/auto_config.json`).
 
+## Import dữ liệu cũ
+
+Tab **Import dữ liệu cũ** trên web — kéo thả hoặc chọn file (hoặc ZIP):
+
+| File | Tự map |
+|------|--------|
+| `.env` | API, chat ID, bot token, web port/token → `data/auto_config.json` |
+| `channels.json`, `folders.json`, `topic_map.txt`, `topic_rr.json` | Copy + topic map → web |
+| `inventory.json`, `auto_config.json` | Merge kho & cấu hình |
+| `*.session` | Session Pyrogram (restart sau import) |
+
+Sau import → restart tool nếu có session hoặc API mới.
+
 ## Cài đặt
 
 ```bash

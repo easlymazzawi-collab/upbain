@@ -6,7 +6,7 @@ import os
 import time
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -17,7 +17,8 @@ from core.config_store import (
     topic_key,
     upsert_topic_source,
 )
-from core.runtime import get_runtime
+from core.import_legacy import analyze_uploads, apply_import
+from core.runtime import append_log
 from core.scheduler import compute_next_run_ts
 from core.settings import CHANNELS_FILE, web_token
 
@@ -275,3 +276,48 @@ async def api_trigger(src_chat_id: int, topic_id: int, _=Depends(_auth)):
     })
     save_auto_config(cfg)
     return {"ok": True, "message": "Đã queue — tool sẽ chạy nếu auto_run bật"}
+
+
+async def _read_uploads(files: list[UploadFile]) -> list[tuple[str, bytes]]:
+    out: list[tuple[str, bytes]] = []
+    for f in files:
+        if not f.filename:
+            continue
+        data = await f.read()
+        if data:
+            out.append((f.filename, data))
+    return out
+
+
+@app.post("/api/import/preview")
+async def import_preview(
+    files: list[UploadFile] = File(...),
+    _=Depends(_auth),
+):
+    uploads = await _read_uploads(files)
+    if not uploads:
+        raise HTTPException(400, "Chưa chọn file")
+    preview, _ = analyze_uploads(uploads)
+    return preview.to_dict()
+
+
+@app.post("/api/import")
+async def import_apply(
+    files: list[UploadFile] = File(...),
+    _=Depends(_auth),
+):
+    uploads = await _read_uploads(files)
+    if not uploads:
+        raise HTTPException(400, "Chưa chọn file")
+    preview, payload = analyze_uploads(uploads)
+    if preview.errors:
+        raise HTTPException(400, "; ".join(preview.errors))
+    applied = apply_import(payload)
+    msg = (
+        f"Import xong: {len(applied['files_written'])} file, "
+        f"{len(applied['global_updated'])} field config, "
+        f"{applied['topics_upserted']} topic map"
+    )
+    append_log("info", msg)
+    return {"ok": True, "preview": preview.to_dict(), "applied": applied, "message": msg}
+

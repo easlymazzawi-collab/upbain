@@ -44,6 +44,10 @@
     .stat .val { font-size: 1.1rem; font-weight: 600; }
     .stat .lbl { font-size: 0.75rem; color: var(--muted); }
     #activity-log { max-height: 280px; overflow-y: auto; font-size: 0.82rem; font-family: ui-monospace, monospace; }
+    .dropzone.drag { border-color: var(--accent); background: #1e293b; }
+    .file-list { font-size: 0.85rem; color: var(--muted); margin: 0.75rem 0; }
+    .file-list li { padding: 0.2rem 0; }
+    #import-preview { font-size: 0.85rem; color: var(--muted); white-space: pre-wrap; }
     .log-line { padding: 0.25rem 0; border-bottom: 1px solid var(--border); color: var(--muted); }
     .log-line.warn { color: var(--warn); }
     .log-line.error { color: var(--danger); }
@@ -72,6 +76,7 @@
       <button data-tab="alltask">/all Task</button>
       <button data-tab="schedule">Lịch auto</button>
       <button data-tab="telegram">Telegram & Bot</button>
+      <button data-tab="import">Import dữ liệu cũ</button>
       <button data-tab="global">Cài đặt</button>
     </div>
 
@@ -178,6 +183,33 @@
       </div>
     </section>
 
+    <section id="import" class="panel">
+      <div class="card">
+        <h2>Import .env & file data cũ</h2>
+        <p class="hint">Kéo thả hoặc chọn file — tool tự map vào web config. Hỗ trợ ZIP chứa nhiều file.</p>
+        <div class="dropzone" id="dropzone" style="border:2px dashed var(--border);border-radius:12px;padding:2rem;text-align:center;cursor:pointer">
+          <p style="margin:0">📂 Kéo thả vào đây hoặc <strong>bấm chọn file</strong></p>
+          <p class="hint" style="margin:0.5rem 0 0">.env · channels.json · folders.json · topic_map.txt · topic_rr.json · inventory.json · auto_config.json · *.session · .zip</p>
+          <input id="import-files" type="file" multiple accept=".env,.json,.txt,.zip,.session" style="display:none" />
+        </div>
+        <ul class="file-list" id="import-file-list"></ul>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">
+          <button class="secondary" onclick="previewImport()">Xem trước mapping</button>
+          <button class="primary" onclick="applyImport()">Import & tự điền web</button>
+        </div>
+        <pre id="import-preview"></pre>
+      </div>
+      <div class="card">
+        <h2>Mapping tự động</h2>
+        <ul style="color:var(--muted);font-size:0.9rem;padding-left:1.2rem">
+          <li><code>.env</code> → API ID, Hash, Intermediate chat, Ads chat, Web token/port, Bot token...</li>
+          <li><code>channels.json</code>, <code>folders.json</code>, <code>topic_map.txt</code>, <code>topic_rr.json</code> → copy + map topic</li>
+          <li><code>data/inventory.json</code>, <code>data/auto_config.json</code> → merge kho & cấu hình web</li>
+          <li><code>*.session</code> → session Pyrogram (restart tool sau import)</li>
+        </ul>
+      </div>
+    </section>
+
     <section id="global" class="panel">
       <div class="card">
         <h2>xepbai & web</h2>
@@ -201,6 +233,82 @@
     let channelCache = [];
     let scheduleTimes = ["08:00", "20:00"];
     let es = null;
+    let importQueue = [];
+
+    function authHeadersOnly() {
+      const t = $("token").value.trim();
+      const h = {};
+      if (t) h["X-Token"] = t;
+      return h;
+    }
+
+    function setupImport() {
+      const dz = $("dropzone");
+      const inp = $("import-files");
+      dz.onclick = () => inp.click();
+      inp.onchange = () => { addImportFiles(inp.files); inp.value = ""; };
+      dz.ondragover = e => { e.preventDefault(); dz.classList.add("drag"); };
+      dz.ondragleave = () => dz.classList.remove("drag");
+      dz.ondrop = e => {
+        e.preventDefault();
+        dz.classList.remove("drag");
+        addImportFiles(e.dataTransfer.files);
+      };
+    }
+
+    function addImportFiles(fileList) {
+      for (const f of fileList) importQueue.push(f);
+      renderImportList();
+    }
+
+    function renderImportList() {
+      $("import-file-list").innerHTML = importQueue.length
+        ? importQueue.map((f, i) => `<li>${f.name} (${Math.round(f.size/1024)} KB) <button class="secondary" style="padding:0.1rem 0.4rem" onclick="importQueue.splice(${i},1);renderImportList()">×</button></li>`).join("")
+        : "<li>Chưa chọn file</li>";
+    }
+
+    async function uploadImportFiles(path) {
+      if (!importQueue.length) throw new Error("Chưa chọn file");
+      const fd = new FormData();
+      importQueue.forEach(f => fd.append("files", f, f.name));
+      const r = await fetch("/api" + path, { method: "POST", headers: authHeadersOnly(), body: fd });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    }
+
+    function formatPreview(p) {
+      const lines = [];
+      if (p.env_keys?.length) lines.push("📄 .env keys: " + p.env_keys.join(", "));
+      if (p.global_fields?.length) lines.push("⚙️  → web config: " + p.global_fields.join(", "));
+      if (p.root_files?.length) lines.push("📁 File root: " + p.root_files.join(", "));
+      if (p.data_files?.length) lines.push("💾 File data/: " + p.data_files.join(", "));
+      if (p.sessions?.length) lines.push("🔐 Session: " + p.sessions.join(", "));
+      if (p.topics_from_map) lines.push("🗺️  Topic từ topic_map.txt: " + p.topics_from_map);
+      if (p.warnings?.length) lines.push("⚠️  " + p.warnings.join("\n⚠️  "));
+      if (p.errors?.length) lines.push("❌ " + p.errors.join("\n❌ "));
+      return lines.length ? lines.join("\n") : "Không nhận dạng được nội dung.";
+    }
+
+    async function previewImport() {
+      try {
+        const p = await uploadImportFiles("/import/preview");
+        $("import-preview").textContent = formatPreview(p);
+      } catch (e) {
+        toast("Lỗi: " + e.message);
+      }
+    }
+
+    async function applyImport() {
+      try {
+        const res = await uploadImportFiles("/import");
+        $("import-preview").textContent = formatPreview(res.preview) + "\n\n✅ " + res.message;
+        toast(res.message);
+        importQueue = [];
+        renderImportList();
+      } catch (e) {
+        toast("Lỗi: " + e.message);
+      }
+    }
 
     function headers() {
       const t = $("token").value.trim();
@@ -446,6 +554,8 @@
     }
 
     $("token").addEventListener("change", connectStream);
+    setupImport();
+    renderImportList();
     init();
   </script>
 </body>
