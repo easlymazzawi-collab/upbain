@@ -58,6 +58,9 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
         "start_msg_id": None,
         "pin_mode": "latest",
         "cursor_msg_id": None,
+        "include_text_posts": True,
+        "require_full_batch": False,
+        "require_up_confirm": False,
     },
     "plain_task": {
         "enabled": False,

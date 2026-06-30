@@ -34,6 +34,7 @@ class AtomicPost:
     media_count: int
     is_album: bool = False
     album_ids: list[int] = field(default_factory=list)
+    is_text: bool = False
 
 
 @dataclass
@@ -66,8 +67,12 @@ async def _media_count(client, chat_id: int, msg) -> tuple[int, list[int]]:
     return 0, [msg.id]
 
 
-async def _find_oldest_media_cursor(client, chat_id: int, limit: int = 500) -> int | None:
-    """Supergroup không ghim — lấy tin media cũ nhất trong cửa sổ quét."""
+def _has_text(msg) -> bool:
+    return bool((msg.text or msg.caption or "").strip())
+
+
+async def _find_oldest_post_cursor(client, chat_id: int, *, include_text: bool, limit: int = 500) -> int | None:
+    """Tin cũ nhất (media hoặc text) trong cửa sổ quét."""
     ids: list[int] = []
     seen_groups: set[str] = set()
     async for msg in client.get_chat_history(chat_id, limit=limit):
@@ -78,12 +83,14 @@ async def _find_oldest_media_cursor(client, chat_id: int, limit: int = 500) -> i
                 continue
             seen_groups.add(msg.media_group_id)
         mc, _ = await _media_count(client, chat_id, msg)
-        if mc > 0:
+        if mc > 0 or (include_text and _has_text(msg)):
             ids.append(msg.id)
     return min(ids) if ids else None
 
 
-async def _iter_topic_posts_from(client, chat_id: int, topic_id: int | None, start_msg_id: int):
+async def _iter_topic_posts_from(
+    client, chat_id: int, topic_id: int | None, start_msg_id: int, *, include_text: bool = False,
+):
     """Messages from cursor (forum topic or whole supergroup), oldest→newest."""
     seen_groups: set[str] = set()
     candidates = []
@@ -99,7 +106,7 @@ async def _iter_topic_posts_from(client, chat_id: int, topic_id: int | None, sta
                 continue
             seen_groups.add(gid)
         mc, _ = await _media_count(client, chat_id, msg)
-        if mc <= 0:
+        if mc <= 0 and not (include_text and _has_text(msg)):
             continue
         candidates.append(msg)
 
@@ -108,7 +115,7 @@ async def _iter_topic_posts_from(client, chat_id: int, topic_id: int | None, sta
             msg = await client.get_messages(chat_id, start_msg_id)
             if msg and not msg.empty and not msg.service:
                 mc, _ = await _media_count(client, chat_id, msg)
-                if mc > 0:
+                if mc > 0 or (include_text and _has_text(msg)):
                     candidates.append(msg)
         except Exception as e:
             log.warning("get start msg %s: %s", start_msg_id, e)
@@ -123,7 +130,9 @@ async def _iter_topic_posts_from(client, chat_id: int, topic_id: int | None, sta
         yield msg
 
 
-async def _count_remaining(client, chat_id: int, topic_id: int | None, from_msg_id: int) -> tuple[int, int]:
+async def _count_remaining(
+    client, chat_id: int, topic_id: int | None, from_msg_id: int, *, include_text: bool = False,
+) -> tuple[int, int]:
     posts = 0
     media = 0
     seen_groups: set[str] = set()
@@ -137,10 +146,10 @@ async def _count_remaining(client, chat_id: int, topic_id: int | None, from_msg_
                 continue
             seen_groups.add(msg.media_group_id)
         mc, _ = await _media_count(client, chat_id, msg)
-        if mc <= 0:
+        if mc <= 0 and not (include_text and _has_text(msg)):
             continue
         posts += 1
-        media += mc
+        media += mc if mc > 0 else (1 if include_text else 0)
     return posts, media
 
 
@@ -155,6 +164,9 @@ async def collect_batch_from_topic(
     dry_run: bool = False,
 ) -> CollectResult:
     tid = _norm_topic_id(topic_id)
+    all_task_mode = bool(topic_cfg.get("_all_task_mode"))
+    include_text = bool(topic_cfg.get("include_text_posts", all_task_mode))
+
     pinned_id = topic_cfg.get("pinned_msg_id") or await get_pinned_message_id(
         client, src_chat_id, tid
     )
@@ -188,16 +200,18 @@ async def collect_batch_from_topic(
 
     supergroup_auto = False
     if not cursor_id and tid == 0:
-        cursor_id = await _find_oldest_media_cursor(client, src_chat_id)
+        cursor_id = await _find_oldest_post_cursor(client, src_chat_id, include_text=include_text)
         supergroup_auto = bool(cursor_id)
 
     if not cursor_id:
-        rem_p, rem_m = await _count_remaining(client, src_chat_id, tid, 0)
+        rem_p, rem_m = await _count_remaining(
+            client, src_chat_id, tid, 0, include_text=include_text,
+        )
         if not dry_run:
             update_after_scan(src_chat_id, tid, rem_p, rem_m)
-        warn = "⚠️ Nhóm không có bài media (hoặc userbot chưa vào nhóm)."
-        if rem_m > 0:
-            warn = f"⚠️ Có {rem_m} media trong nhóm — ghim bài bắt đầu hoặc dán link tin rồi Lưu."
+        warn = "⚠️ Nhóm trống (hoặc userbot chưa vào nhóm)."
+        if rem_p > 0:
+            warn = f"⚠️ Có {rem_p} bài trong nhóm — ghim hoặc dán link tin bắt đầu rồi Lưu."
         return CollectResult(
             posts=[], total_media=0, total_posts=0,
             pinned_msg_id=pinned_id, next_pin_msg_id=None,
@@ -211,6 +225,7 @@ async def collect_batch_from_topic(
 
     params = resolve_batch_params(pinned_text, topic_cfg, global_cfg)
     target_media = target_media_override or params["target_media"]
+    max_posts = int(topic_cfg.get("max_posts") or 100)
 
     posts: list[AtomicPost] = []
     total_media = 0
@@ -218,16 +233,23 @@ async def collect_batch_from_topic(
     last_taken_id: int | None = None
     next_pin: int | None = None
 
-    async for msg in _iter_topic_posts_from(client, src_chat_id, tid, cursor_id):
+    async for msg in _iter_topic_posts_from(
+        client, src_chat_id, tid, cursor_id, include_text=include_text,
+    ):
         if msg.media_group_id and msg.media_group_id in seen_groups:
             continue
         mc, album_ids = await _media_count(client, src_chat_id, msg)
-        if mc <= 0:
+        is_text = mc <= 0 and include_text and _has_text(msg)
+        if mc <= 0 and not is_text:
             continue
         if msg.media_group_id:
             seen_groups.add(msg.media_group_id)
 
-        if total_media >= target_media:
+        if all_task_mode:
+            if len(posts) >= max_posts:
+                next_pin = msg.id
+                break
+        elif total_media >= target_media:
             next_pin = msg.id
             break
 
@@ -236,47 +258,62 @@ async def collect_batch_from_topic(
             media_count=mc,
             is_album=len(album_ids) > 1,
             album_ids=album_ids,
+            is_text=is_text,
         ))
         total_media += mc
         last_taken_id = msg.id
 
-        if total_media >= target_media:
+        if not all_task_mode and total_media >= target_media:
             next_pin = None
             break
 
-    if last_taken_id and next_pin is None:
-        next_pin = await _find_next_post_id(client, src_chat_id, tid, last_taken_id, seen_groups)
+    if last_taken_id and next_pin is None and not all_task_mode:
+        next_pin = await _find_next_post_id(
+            client, src_chat_id, tid, last_taken_id, seen_groups, include_text=include_text,
+        )
 
-    sufficient = total_media >= target_media
+    if all_task_mode:
+        sufficient = len(posts) > 0
+    else:
+        sufficient = total_media >= target_media
     if sufficient:
         rem_posts, rem_media = await _count_remaining(
-            client, src_chat_id, tid, next_pin or (last_taken_id or cursor_id)
+            client, src_chat_id, tid, next_pin or (last_taken_id or cursor_id),
+            include_text=include_text,
         )
         scan_cursor = next_pin or (last_taken_id or cursor_id)
     else:
         rem_posts, rem_media = await _count_remaining(
-            client, src_chat_id, tid, cursor_id
+            client, src_chat_id, tid, cursor_id, include_text=include_text,
         )
         scan_cursor = cursor_id
 
     if not dry_run:
         update_after_scan(src_chat_id, tid, rem_posts, rem_media, scan_cursor, pinned_id)
 
-    warn = check_low_stock(src_chat_id, tid, target_media if sufficient else total_media)
+    warn = None if all_task_mode else check_low_stock(
+        src_chat_id, tid, target_media if sufficient else total_media,
+    )
 
     if not posts:
-        rem_p, rem_m = await _count_remaining(client, src_chat_id, tid, cursor_id or 0)
-        if rem_m > 0 and cursor_id:
+        rem_p, rem_m = await _count_remaining(
+            client, src_chat_id, tid, cursor_id or 0, include_text=include_text,
+        )
+        if rem_p > 0 and cursor_id:
             extra = (
-                f"⚠️ Có {rem_m} media từ msg {cursor_id} nhưng batch trống — "
-                "ghim/dán link đúng bài bắt đầu lượt up."
+                f"⚠️ Có {rem_p} bài từ msg {cursor_id} nhưng batch trống — "
+                "ghim/dán link đúng bài bắt đầu."
             )
             warn = extra if not warn else f"{warn}\n{extra}"
-        elif rem_m == 0:
-            extra = "⚠️ Không thấy bài media trong nhóm (500 tin gần nhất)."
+        elif rem_p == 0:
+            extra = "⚠️ Không thấy bài trong nhóm (500 tin gần nhất)."
             warn = extra if not warn else f"{warn}\n{extra}"
     elif supergroup_auto and not warn:
         warn = f"ℹ️ Supergroup: tự lấy từ msg {cursor_id} (chưa ghim)."
+    elif all_task_mode and posts and not warn:
+        text_n = sum(1 for p in posts if p.is_text)
+        if text_n:
+            warn = f"ℹ️ /all: {len(posts)} bài ({text_n} text) — không cần đủ 30 media."
 
     return CollectResult(
         posts=posts,
@@ -294,7 +331,7 @@ async def collect_batch_from_topic(
     )
 
 
-async def _find_next_post_id(client, chat_id, topic_id, after_id, already_seen_groups):
+async def _find_next_post_id(client, chat_id, topic_id, after_id, already_seen_groups, *, include_text=False):
     found_after = False
     seen = set(already_seen_groups)
     async for msg in client.get_chat_history(chat_id, limit=300, **_history_kw(topic_id)):
@@ -310,7 +347,7 @@ async def _find_next_post_id(client, chat_id, topic_id, after_id, already_seen_g
                 continue
             seen.add(msg.media_group_id)
         mc, _ = await _media_count(client, chat_id, msg)
-        if mc > 0:
+        if mc > 0 or (include_text and _has_text(msg)):
             return msg.id
     return None
 

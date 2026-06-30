@@ -262,6 +262,8 @@ async def run_all_task(
         "default_cpa": task.get("xep_cpa") or base_tcfg.get("default_cpa"),
         "default_mode": task.get("xep_mode") or base_tcfg.get("default_mode"),
         "use_ads": task.get("use_ads", False),
+        "_all_task_mode": True,
+        "include_text_posts": task.get("include_text_posts", True),
     }
 
     result = await collect_batch_from_topic(client, src_chat, src_topic, tcfg, cfg.get("global", {}))
@@ -272,7 +274,8 @@ async def run_all_task(
     if not result.posts:
         return False
 
-    if require_full_batch() and not result.sufficient:
+    all_must_full = bool(task.get("require_full_batch", False)) and require_full_batch()
+    if all_must_full and not result.sufficient:
         mark_waiting(tkey, task.get("source_title") or "/all", result.total_media, target_media)
         await notify_wait(
             notify,
@@ -282,7 +285,7 @@ async def run_all_task(
         )
         return False
 
-    if require_up_confirm() and not force_run:
+    if task.get("require_up_confirm", False) and require_up_confirm() and not force_run:
         offered = await offer_up_confirm(
             notify,
             tkey,

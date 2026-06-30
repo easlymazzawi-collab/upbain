@@ -75,6 +75,7 @@ async def stock_poll_loop(run_topic: RunTopicFn) -> None:
                     if (
                         (all_task.get("enabled") or plain_task.get("enabled"))
                         and all_task.get("source_chat_id")
+                        and all_task.get("require_full_batch", False)
                     ):
                         ak = topic_key(all_task["source_chat_id"], all_task.get("source_topic_id") or 0)
                         if ak in waiting:

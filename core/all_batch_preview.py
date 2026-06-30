@@ -25,6 +25,8 @@ def _all_topic_cfg(task: dict, src_chat: int, src_topic: int) -> dict:
         "pin_mode": task.get("pin_mode") or base.get("pin_mode") or "latest",
         "start_link": task.get("start_link") or base.get("start_link"),
         "target_media_override": task.get("target_media_override") or base.get("target_media_override"),
+        "_all_task_mode": True,
+        "include_text_posts": task.get("include_text_posts", True),
     }
 
 
@@ -57,7 +59,7 @@ async def refresh_all_batch_preview(client) -> dict | None:
         "src_chat_id": src_chat,
         "topic_id": src_topic,
         "posts": [
-            {"msg_id": p.msg_id, "media_count": p.media_count, "index": i + 1}
+            {"msg_id": p.msg_id, "media_count": p.media_count, "index": i + 1, "is_text": p.is_text}
             for i, p in enumerate(result.posts)
         ],
         "total_posts": len(result.posts),
@@ -70,6 +72,7 @@ async def refresh_all_batch_preview(client) -> dict | None:
         "remaining_posts": result.remaining_posts,
         "remaining_media": result.remaining_media,
         "warn": result.warn,
+        "all_task_mode": True,
         "updated_at": int(time.time()),
     }
     set_all_batch_preview(preview)

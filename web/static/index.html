@@ -181,7 +181,7 @@
           <strong>Bật /all</strong>
           <span class="badge" id="all-status">—</span>
         </label>
-        <p class="hint">Supergroup thường: chỉ cần <strong>chat ID</strong> hoặc link tin trong nhóm. Forum mới cần topic.</p>
+        <p class="hint">Supergroup: chat ID hoặc link tin. <strong>Text + media</strong> đều lấy — không cần đủ 30 media.</p>
         <label>Link nguồn hoặc chat ID</label>
         <input id="all-source-link" placeholder="-1004401775054 hoặc https://t.me/c/.../678" />
         <div id="all-save-status" class="status-banner warn" style="display:none;margin-top:0.5rem"></div>
@@ -778,14 +778,22 @@
       }
       const n = preview.total_posts || 0;
       const m = preview.total_media || 0;
+      const textN = (preview.posts || []).filter(p => p.is_text || p.media_count === 0).length;
       const tgt = preview.target_media || "?";
       badge.textContent = `${n} bài`;
-      badge.className = "badge " + (preview.sufficient ? "ok" : "warn");
-      $("all-batch-summary").innerHTML =
-        `<strong>${n}</strong> bài · <strong>${m}</strong>/${tgt} media` +
-        (preview.sufficient
-          ? ' · <span class="badge ok">đủ batch</span>'
-          : ' · <span class="badge warn">chưa đủ</span>');
+      const ready = preview.sufficient || (preview.all_task_mode && n > 0);
+      badge.className = "badge " + (ready ? "ok" : "warn");
+      if (preview.all_task_mode && n > 0 && m === 0) {
+        $("all-batch-summary").innerHTML =
+          `<strong>${n}</strong> bài text · <span class="badge ok">sẵn up</span>` +
+          (textN ? ` (${textN} tin chữ)` : "");
+      } else {
+        $("all-batch-summary").innerHTML =
+          `<strong>${n}</strong> bài · <strong>${m}</strong>/${tgt} media` +
+          (ready
+            ? ' · <span class="badge ok">sẵn up</span>'
+            : ' · <span class="badge warn">chưa đủ</span>');
+      }
       if (preview.warn) {
         $("all-batch-summary").innerHTML += `<br><span style="color:var(--warn)">${preview.warn}</span>`;
       } else if (n === 0 && (preview.remaining_media || 0) > 0) {
@@ -826,7 +834,7 @@
         const link = tmePostLink(chat, topic, p.msg_id);
         return `<label class="post-row">
           <input type="checkbox" ${checked ? "checked" : ""} onchange="togglePlainPost(${p.msg_id}, this.checked)" />
-          <span>#${p.index} · msg ${p.msg_id} · ${p.media_count} media</span>
+          <span>#${p.index} · msg ${p.msg_id}${p.is_text ? " · text" : ` · ${p.media_count} media`}</span>
           <a href="${link}" target="_blank" rel="noopener">mở ↗</a>
         </label>`;
       }).join("");
