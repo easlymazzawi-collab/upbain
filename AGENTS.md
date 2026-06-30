@@ -30,7 +30,17 @@ No `.env.example` is committed. There is intentionally no `.env` in the repo.
   on stdin for phone number, then the login code (and 2FA password if set). In a
   non-interactive shell this raises `EOFError`. End-to-end runs therefore require a real,
   logged-in Telegram account; this cannot be fully automated in the cloud VM because the
-  login OTP is delivered to the account owner's phone.
+  login OTP is delivered to the account owner's phone. The login must be performed
+  **inside this VM** (in `/workspace`) so the resulting `test_session.session` persists in
+  the snapshot and later runs start non-interactively.
+- **`API_HASH` may carry a trailing newline** when supplied via the injected secret, but a
+  Telegram api_hash must be exactly 32 hex chars. The script reads `os.getenv("API_HASH")`
+  raw, so strip it when launching, e.g.
+  `API_HASH="$(printf '%s' "$API_HASH" | tr -d '[:space:]')" python3 tool__tauto_nostage.py`
+  (or re-save the secret without the trailing newline). `int(...)` on the chat-id vars
+  tolerates whitespace, so only `API_HASH` needs this.
+- `load_dotenv()` does **not** override variables already present in the environment, so
+  injected secrets take precedence over any committed `.env`.
 - This is a **userbot operating a real account** — exercising forwarding carries
   account-flood/ban risk. Prefer a throwaway test account and test channels. The code has
   extensive anti-flood logic (TokenBucket, global flood gate, retries) for this reason.
