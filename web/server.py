@@ -19,7 +19,15 @@ from core.config_store import (
 )
 from core.import_legacy import analyze_uploads, apply_import
 from core.all_config import merge_all_task, merge_plain_task
-from core.map_config import apply_start_link_flexible, apply_start_link_to_topic, clear_start_link, sync_topic_to_map_file
+from core.map_config import (
+    apply_start_link_flexible,
+    apply_start_link_to_topic,
+    clear_start_link,
+    delete_topic_entry,
+    sync_topic_to_map_file,
+    update_topic_mapping_cmd,
+    upsert_topic_mapping,
+)
 from core.runtime import append_log, get_runtime
 from core.scheduler import compute_next_run_ts
 from core.bot_notify import send_bot_notify
@@ -101,6 +109,21 @@ class PlainTaskPatchIn(BaseModel):
 
 class TopicPostLimitsIn(BaseModel):
     map_post_limits: dict[str, int] = Field(default_factory=dict)
+
+
+class TopicMapAddIn(BaseModel):
+    topic_title: str
+    channel_cmd: str
+    post_count: int | None = None
+    src_chat_id: int | None = None
+    topic_id: int | None = None
+
+
+class TopicMapCmdIn(BaseModel):
+    topic_title: str = ""
+    old_cmd: str
+    new_cmd: str
+    post_count: int | None = None
 
 
 class AliasIn(BaseModel):
@@ -388,6 +411,41 @@ async def api_topics(_=Depends(_auth)):
     return list(cfg.get("topic_sources", {}).values())
 
 
+@app.post("/api/topics/map")
+async def add_topic_map(body: TopicMapAddIn, _=Depends(_auth)):
+    try:
+        entry = upsert_topic_mapping(
+            topic_title=body.topic_title,
+            channel_cmd=body.channel_cmd,
+            post_count=body.post_count,
+            src_chat_id=body.src_chat_id,
+            topic_id=body.topic_id,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    append_log("info", f"Thêm map {body.topic_title} → /{body.channel_cmd.lstrip('/')}")
+    return {"ok": True, "entry": entry, "message": f"✓ {body.topic_title} → /{body.channel_cmd.lstrip('/')}"}
+
+
+@app.patch("/api/topics/{src_chat_id}/{topic_id}/mapping")
+async def patch_topic_mapping(
+    src_chat_id: int, topic_id: int, body: TopicMapCmdIn, _=Depends(_auth),
+):
+    try:
+        entry = update_topic_mapping_cmd(
+            src_chat_id=src_chat_id,
+            topic_id=topic_id,
+            topic_title=body.topic_title,
+            old_cmd=body.old_cmd,
+            new_cmd=body.new_cmd,
+            post_count=body.post_count,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    append_log("info", f"Sửa map /{body.old_cmd} → /{body.new_cmd.lstrip('/')}")
+    return entry
+
+
 @app.post("/api/topics")
 async def post_topic(body: TopicSourceIn, _=Depends(_auth)):
     from core.map_limits import normalize_post_limits
@@ -446,11 +504,20 @@ async def delete_topic_start_link(src_chat_id: int, topic_id: int, _=Depends(_au
 
 
 @app.delete("/api/topics/{src_chat_id}/{topic_id}")
-async def delete_topic(src_chat_id: int, topic_id: int, _=Depends(_auth)):
-    cfg = load_auto_config()
-    key = topic_key(src_chat_id, topic_id)
-    cfg.get("topic_sources", {}).pop(key, None)
-    save_auto_config(cfg)
+async def delete_topic(
+    src_chat_id: int,
+    topic_id: int,
+    topic_title: str | None = None,
+    _=Depends(_auth),
+):
+    ok = delete_topic_entry(
+        src_chat_id=src_chat_id,
+        topic_id=topic_id,
+        topic_title=topic_title or "",
+    )
+    if not ok:
+        raise HTTPException(404, "Không tìm thấy topic")
+    append_log("info", f"Xóa map topic {topic_title or f'{src_chat_id}:{topic_id}'}")
     return {"ok": True}
 
 

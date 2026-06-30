@@ -5,8 +5,12 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from core.config_store import load_auto_config, topic_key, upsert_topic_source
-from core.map_limits import format_map_comment, format_map_rhs, normalize_post_limits, post_limit_for_cmd, trim_posts
+from core.config_store import load_auto_config, save_auto_config, topic_key, upsert_topic_source
+from core.map_limits import (
+    format_map_comment,
+    format_map_rhs,
+    normalize_post_limits,
+)
 
 TOPIC_MAP_TXT = "topic_map.txt"
 
@@ -68,45 +72,185 @@ def _read_global_whitelist() -> list[str]:
     return []
 
 
-def sync_topic_to_map_file(entry: dict) -> None:
-    """Ghi 1 dòng map vào topic_map.txt (giữ @xepbai directives)."""
-    title = entry.get("topic_title") or ""
-    cmds = entry.get("mapped_cmds") or []
-    if not title or not cmds:
-        return
-    cmd = cmds[0]
-    limits = normalize_post_limits(entry.get("map_post_limits"))
-    posts = limits.get(cmd.lower())
-    rhs = format_map_rhs(cmd, posts)
-    comment = format_map_comment(posts, title)
-    src = entry.get("src_chat_id")
-    tid = entry.get("topic_id")
+def _map_left_key(entry: dict) -> str:
+    title = (entry.get("topic_title") or "").strip()
+    src = int(entry.get("src_chat_id") or 0)
+    tid = int(entry.get("topic_id") or 0)
     if src and tid:
-        key = f"{src}:{tid}"
-    elif src:
-        key = f"{src}:{title}"
-    else:
-        key = title
+        return f"{src}:{tid}"
+    if src and title:
+        return f"{src}:{title}"
+    return title or f"{src}:{tid}"
 
-    lines: list[str] = []
+
+def rebuild_topic_map_file() -> int:
+    """Ghi lại toàn bộ topic_map.txt từ config (giữ dòng @xepbai)."""
+    cfg = load_auto_config()
+    topics = cfg.get("topic_sources") or {}
+    kept: list[str] = []
     if os.path.exists(TOPIC_MAP_TXT):
-        with open(TOPIC_MAP_TXT, encoding="utf-8") as f:
-            lines = f.read().splitlines()
+        for ln in open(TOPIC_MAP_TXT, encoding="utf-8"):
+            cs = ln.strip().split("#", 1)[0].strip()
+            if not cs:
+                kept.append(ln.rstrip())
+            elif cs.startswith("@") or "=" not in cs:
+                kept.append(ln.rstrip())
+    else:
+        kept = [
+            "# ===== MAP TOPIC -> KÊNH (sửa trên web hoặc file này) =====",
+            "# vitamin = pro@5",
+            "",
+        ]
+    if kept and kept[-1] != "":
+        kept.append("")
 
-    kept = []
-    for ln in lines:
-        cs = ln.strip().split("#", 1)[0].strip()
-        if not cs or cs.startswith("@") or "=" not in cs:
-            kept.append(ln)
+    n = 0
+    seen: set[str] = set()
+    for _k, entry in sorted(topics.items(), key=lambda kv: (kv[1].get("topic_title") or kv[0]).lower()):
+        title = (entry.get("topic_title") or "").strip()
+        cmds = entry.get("mapped_cmds") or []
+        if not cmds:
             continue
-        left = cs.partition("=")[0].strip().lower()
-        if left == key.lower() or left == title.lower():
+        limits = normalize_post_limits(entry.get("map_post_limits"))
+        left = _map_left_key(entry)
+        if not left:
             continue
-        kept.append(ln)
+        for cmd in cmds:
+            c = str(cmd).strip().lstrip("/")
+            if not c:
+                continue
+            posts = limits.get(c.lower())
+            rhs = format_map_rhs(c, posts)
+            comment = format_map_comment(posts, title)
+            line = f"{left} = {rhs}  # {comment}"
+            sig = line.lower()
+            if sig in seen:
+                continue
+            seen.add(sig)
+            kept.append(line)
+            n += 1
 
-    kept.append(f"{key} = {rhs}  # {comment}")
     with open(TOPIC_MAP_TXT, "w", encoding="utf-8") as f:
         f.write("\n".join(kept) + "\n")
+    return n
+
+
+def sync_topic_to_map_file(entry: dict) -> None:
+    """Đồng bộ topic_map.txt sau thay đổi config."""
+    rebuild_topic_map_file()
+
+
+def upsert_topic_mapping(
+    *,
+    topic_title: str,
+    channel_cmd: str,
+    post_count: int | None = None,
+    src_chat_id: int | None = None,
+    topic_id: int | None = None,
+) -> dict:
+    title = (topic_title or "").strip()
+    cmd = (channel_cmd or "").strip().lstrip("/")
+    if not title:
+        raise ValueError("Cần tên topic")
+    if not cmd:
+        raise ValueError("Cần tên kênh (alias)")
+
+    key, existing = find_topic_entry(
+        src_chat_id=src_chat_id or 0,
+        topic_id=topic_id or 0,
+        topic_title=title,
+    )
+    if not key:
+        sid, tid = int(src_chat_id or 0), int(topic_id or 0)
+        key = topic_key(sid, tid) if sid and tid else f"title:{title.lower()}"
+
+    entry = dict(existing or {})
+    entry["topic_title"] = title
+    entry["src_chat_id"] = int(src_chat_id or entry.get("src_chat_id") or 0)
+    entry["topic_id"] = int(topic_id if topic_id is not None else entry.get("topic_id") or 0)
+
+    cmds = list(entry.get("mapped_cmds") or [])
+    if cmd not in cmds:
+        cmds.append(cmd)
+    entry["mapped_cmds"] = cmds
+
+    limits = normalize_post_limits(entry.get("map_post_limits"))
+    if post_count is not None and int(post_count) > 0:
+        limits[cmd.lower()] = int(post_count)
+    entry["map_post_limits"] = limits
+    entry.setdefault("enabled", True)
+
+    cfg = load_auto_config()
+    cfg.setdefault("topic_sources", {})[key] = entry
+    save_auto_config(cfg)
+    rebuild_topic_map_file()
+    return entry
+
+
+def update_topic_mapping_cmd(
+    *,
+    src_chat_id: int = 0,
+    topic_id: int = 0,
+    topic_title: str = "",
+    old_cmd: str,
+    new_cmd: str,
+    post_count: int | None = None,
+) -> dict:
+    o = (old_cmd or "").strip().lstrip("/").lower()
+    n = (new_cmd or "").strip().lstrip("/")
+    if not n:
+        raise ValueError("Tên kênh không được trống")
+
+    key, entry = find_topic_entry(
+        src_chat_id=src_chat_id,
+        topic_id=topic_id,
+        topic_title=topic_title,
+    )
+    if not entry:
+        raise ValueError("Không tìm thấy topic")
+
+    entry = dict(entry)
+    cmds = [n if str(c).lower().lstrip("/") == o else c for c in (entry.get("mapped_cmds") or [])]
+    if n not in cmds:
+        cmds.append(n)
+    entry["mapped_cmds"] = cmds
+
+    limits = normalize_post_limits(entry.get("map_post_limits"))
+    if o in limits:
+        prev = limits.pop(o)
+        if post_count is not None and int(post_count) > 0:
+            limits[n.lower()] = int(post_count)
+        elif n.lower() not in limits:
+            limits[n.lower()] = prev
+    elif post_count is not None and int(post_count) > 0:
+        limits[n.lower()] = int(post_count)
+    entry["map_post_limits"] = limits
+
+    cfg = load_auto_config()
+    cfg.setdefault("topic_sources", {})[key] = entry
+    save_auto_config(cfg)
+    rebuild_topic_map_file()
+    return entry
+
+
+def delete_topic_entry(
+    *,
+    src_chat_id: int = 0,
+    topic_id: int = 0,
+    topic_title: str = "",
+) -> bool:
+    key, _ = find_topic_entry(
+        src_chat_id=src_chat_id,
+        topic_id=topic_id,
+        topic_title=topic_title,
+    )
+    if not key:
+        return False
+    cfg = load_auto_config()
+    cfg.get("topic_sources", {}).pop(key, None)
+    save_auto_config(cfg)
+    rebuild_topic_map_file()
+    return True
 
 
 def apply_start_link_to_topic(src_chat_id: int, topic_id: int, link: str) -> dict:

@@ -165,12 +165,30 @@
 
     <section id="topics" class="panel">
       <div class="card">
-        <h2>Topic map — link bắt đầu</h2>
-        <p class="hint">
-          <strong>Bước 1:</strong> tab Import → upload <code>topic_map.txt</code><br>
-          <strong>Bước 2:</strong> mỗi topic dán link tin ghim/bắt đầu → <strong>Lưu link</strong> → <strong>Chạy</strong><br>
-          <strong>Số bài/map:</strong> đặt trên web hoặc trong file <code>vitamin = pro@5</code> / <code># 5 bài</code>
-        </p>
+        <h2>Topic map</h2>
+        <p class="hint">Thêm/sửa mapping trực tiếp — tự ghi <code>topic_map.txt</code>. Sau đó dán link bắt đầu → <strong>Lưu link</strong> → <strong>Chạy</strong>.</p>
+        <div class="topic-row" style="margin-bottom:1rem">
+          <label>Tên topic nguồn</label>
+          <input id="new-map-topic" placeholder="vitamin" />
+          <div class="row" style="margin-top:0.5rem">
+            <div>
+              <label>Kênh (alias)</label>
+              <input id="new-map-cmd" placeholder="pro" />
+            </div>
+            <div>
+              <label>Số bài (tùy chọn)</label>
+              <input id="new-map-posts" type="number" min="0" placeholder="5" />
+            </div>
+          </div>
+          <details style="margin:0.5rem 0">
+            <summary style="cursor:pointer;color:var(--muted);font-size:0.85rem">Scoped (chat:topic) — tùy chọn</summary>
+            <div class="row" style="margin-top:0.5rem">
+              <div><label>Chat ID</label><input id="new-map-chat" placeholder="-100..." /></div>
+              <div><label>Topic ID</label><input id="new-map-tid" type="number" placeholder="5" /></div>
+            </div>
+          </details>
+          <button class="primary" style="margin-top:0.5rem" onclick="addTopicMap()">➕ Thêm mapping</button>
+        </div>
         <div id="topics-list"></div>
       </div>
     </section>
@@ -617,7 +635,7 @@
       captureTopicLinkDrafts();
       if (!list.length) {
         $("topics-list").innerHTML =
-          "<p style='color:var(--muted)'>Chưa có map — tab <strong>Import</strong> → upload <code>topic_map.txt</code></p>";
+          "<p style='color:var(--muted)'>Chưa có map — thêm mapping ở trên hoặc tab <strong>Import</strong>.</p>";
         return;
       }
       $("topics-list").innerHTML = list.map(t => {
@@ -638,6 +656,7 @@
             : `<span class="badge warn">chưa có link</span>`);
         const safeTitle = (t.topic_title || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
         const escLink = displayLink.replace(/"/g, "&quot;");
+        const primaryCmd = (t.mapped_cmds || [])[0] || "";
         const limitRow = (t.mapped_cmds || []).map(cmd => {
           const key = String(cmd).toLowerCase();
           const draft = mapPostDrafts[`${t.src_chat_id || 0}:${t.topic_id || 0}:${key}`];
@@ -649,9 +668,16 @@
         }).join("");
         return `
         <div class="topic-row">
-          <div class="topic-info">
-            <strong>${name}</strong> → /${cmds} ${status}
-            ${limitBits ? `<span class="badge ok" style="margin-left:0.35rem">${limitBits}</span>` : ""}
+          <div class="topic-info" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+            <strong>${name}</strong>
+            <span>→</span>
+            <input class="map-cmd-in" style="width:100px;margin:0" value="${primaryCmd}"
+              data-src="${t.src_chat_id || 0}" data-tid="${t.topic_id || 0}" data-title="${safeTitle}"
+              data-old="${primaryCmd}" onchange="saveMapCmd(this)" />
+            ${status}
+            ${limitBits ? `<span class="badge ok">${limitBits}</span>` : ""}
+            <button class="secondary" style="margin-left:auto;padding:0.25rem 0.6rem"
+              onclick="deleteTopicMap(${t.src_chat_id || 0}, ${t.topic_id || 0}, '${safeTitle}')">🗑 Xóa</button>
           </div>
           ${limitRow ? `<div class="sub-grid" style="margin:0.5rem 0">${limitRow}</div>` : ""}
           <div class="topic-link-row">
@@ -661,6 +687,60 @@
           </div>
         </div>`;
       }).join("");
+    }
+
+    async function addTopicMap() {
+      const topic_title = $("new-map-topic").value.trim();
+      const channel_cmd = $("new-map-cmd").value.trim().replace(/^\//, "");
+      const post_count = +$("new-map-posts").value || null;
+      const src_chat_id = +$("new-map-chat").value || null;
+      const topic_id = $("new-map-tid").value.trim() ? +$("new-map-tid").value : null;
+      if (!topic_title || !channel_cmd) {
+        toast("Nhập tên topic + alias kênh");
+        return;
+      }
+      try {
+        const body = { topic_title, channel_cmd, post_count };
+        if (src_chat_id) body.src_chat_id = src_chat_id;
+        if (topic_id != null) body.topic_id = topic_id;
+        const r = await api("/topics/map", { method: "POST", body: JSON.stringify(body) });
+        toast(r.message || "Đã thêm map");
+        $("new-map-topic").value = "";
+        $("new-map-cmd").value = "";
+        $("new-map-posts").value = "";
+      } catch (e) {
+        toast("Lỗi: " + (e.message || e));
+      }
+    }
+
+    async function saveMapCmd(el) {
+      const src = +el.dataset.src || 0;
+      const tid = +el.dataset.tid || 0;
+      const title = el.dataset.title || "";
+      const old_cmd = el.dataset.old || el.value;
+      const new_cmd = el.value.trim().replace(/^\//, "");
+      if (!new_cmd) { toast("Tên kênh không được trống"); return; }
+      try {
+        await api(`/topics/${src}/${tid}/mapping`, {
+          method: "PATCH",
+          body: JSON.stringify({ topic_title: title, old_cmd, new_cmd }),
+        });
+        el.dataset.old = new_cmd;
+        toast(`Đã sửa → /${new_cmd}`);
+      } catch (e) {
+        toast("Lỗi: " + (e.message || e));
+      }
+    }
+
+    async function deleteTopicMap(src, tid, title) {
+      if (!confirm(`Xóa mapping topic "${title || src + ':' + tid}"?`)) return;
+      try {
+        const q = title ? `?topic_title=${encodeURIComponent(title)}` : "";
+        await api(`/topics/${src}/${tid}${q}`, { method: "DELETE" });
+        toast("Đã xóa mapping");
+      } catch (e) {
+        toast("Lỗi: " + (e.message || e));
+      }
     }
 
     async function saveTopicLink(src, topic, title) {
