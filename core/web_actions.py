@@ -45,4 +45,7 @@ def action_labels() -> dict[str, str]:
         "scan_topic": "Scan kho topic",
         "sync_folders": "Sync folder → cập nhật kênh",
         "check_channels": "Check kênh chết",
+        "xep_preview": "Xem trước xếp bài",
+        "apply_start_link": "Set link bắt đầu",
+        "clear_start_link": "Xóa link bắt đầu",
     }

@@ -18,6 +18,7 @@ from core.config_store import (
     upsert_topic_source,
 )
 from core.import_legacy import analyze_uploads, apply_import
+from core.map_config import apply_start_link_to_topic, clear_start_link, sync_topic_to_map_file
 from core.runtime import append_log, get_runtime
 from core.scheduler import compute_next_run_ts
 from core.settings import CHANNELS_FILE, api_ready, web_token
@@ -56,9 +57,16 @@ class TopicSourceIn(BaseModel):
     media_per_round: int | None = None
     default_cpa: int | None = None
     default_mode: str = "normal"
+    xepbai_mode: str | None = "inherit"
+    xepbai_whitelist_cmds: list[str] = []
+    use_ads: bool | None = None
     channels_no_ads: list[str] = []
     mapped_cmds: list[str] = []
     enabled: bool = True
+    pin_mode: str = "latest"
+    start_link: str = ""
+    start_msg_id: int | None = None
+    cursor_msg_id: int | None = None
 
 
 class AllTaskIn(BaseModel):
@@ -68,6 +76,30 @@ class AllTaskIn(BaseModel):
     source_title: str = ""
     selected_channel_ids: list[int] = []
     run_after_regular: bool = True
+    use_ads: bool = False
+    xep_cpa: int = 1
+    xep_mode: str = "normal"
+    target_media_override: int | None = None
+    start_link: str = ""
+    start_msg_id: int | None = None
+    pin_mode: str = "latest"
+    cursor_msg_id: int | None = None
+
+
+class StartLinkIn(BaseModel):
+    link: str
+
+
+class GlobalIn(BaseModel):
+    xepbai_off_default_cpa: int = 1
+    xepbai_off_default_mode: str = "normal"
+    xepbai_mode: str = "off"
+    xepbai_whitelist_cmds: list[str] = []
+    low_media_warn_threshold: int = 50
+    auto_run_enabled: bool = True
+    web_host: str = "0.0.0.0"
+    web_port: int = 8080
+    web_token: str = ""
 
 
 class ScheduleIn(BaseModel):
@@ -76,16 +108,6 @@ class ScheduleIn(BaseModel):
     timezone: str = "Asia/Ho_Chi_Minh"
     run_all_topics: bool = True
     run_all_task_after: bool = True
-
-
-class GlobalIn(BaseModel):
-    xepbai_off_default_cpa: int = 1
-    xepbai_off_default_mode: str = "normal"
-    low_media_warn_threshold: int = 50
-    auto_run_enabled: bool = True
-    web_host: str = "0.0.0.0"
-    web_port: int = 8080
-    web_token: str = ""
 
 
 class TelegramIn(BaseModel):
@@ -255,7 +277,23 @@ async def api_topics(_=Depends(_auth)):
 @app.post("/api/topics")
 async def post_topic(body: TopicSourceIn, _=Depends(_auth)):
     entry = upsert_topic_source(body.src_chat_id, body.topic_id, body.model_dump())
+    sync_topic_to_map_file(entry)
     return entry
+
+
+@app.post("/api/topics/{src_chat_id}/{topic_id}/start-link")
+async def post_topic_start_link(src_chat_id: int, topic_id: int, body: StartLinkIn, _=Depends(_auth)):
+    try:
+        entry = apply_start_link_to_topic(src_chat_id, topic_id, body.link)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    append_log("info", f"Set start link {src_chat_id}:{topic_id} → msg {entry.get('start_msg_id')}")
+    return entry
+
+
+@app.delete("/api/topics/{src_chat_id}/{topic_id}/start-link")
+async def delete_topic_start_link(src_chat_id: int, topic_id: int, _=Depends(_auth)):
+    return clear_start_link(src_chat_id, topic_id)
 
 
 @app.delete("/api/topics/{src_chat_id}/{topic_id}")
@@ -275,7 +313,15 @@ async def get_all_task(_=Depends(_auth)):
 @app.post("/api/all-task")
 async def post_all_task(body: AllTaskIn, _=Depends(_auth)):
     cfg = load_auto_config()
-    cfg["all_task"] = body.model_dump()
+    data = body.model_dump()
+    if data.get("start_link"):
+        from core.link_parser import parse_telegram_link
+        parsed = parse_telegram_link(data["start_link"])
+        if parsed and parsed.get("msg_id"):
+            data["start_msg_id"] = parsed["msg_id"]
+            data["cursor_msg_id"] = parsed["msg_id"]
+            data["pin_mode"] = "link"
+    cfg["all_task"] = data
     save_auto_config(cfg)
     return cfg["all_task"]
 

@@ -51,7 +51,10 @@
     .log-line { padding: 0.25rem 0; border-bottom: 1px solid var(--border); color: var(--muted); }
     .log-line.warn { color: var(--warn); }
     .log-line.error { color: var(--danger); }
-    .btn-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.75rem 0; }
+    .timeline-item { border-left: 3px solid var(--accent); padding-left: 1rem; margin-bottom: 1.25rem; }
+    .timeline-item h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
+    .sub-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; margin: 0.5rem 0; }
+    .pin-box { background: var(--bg); border: 1px dashed var(--border); border-radius: 8px; padding: 0.75rem; margin: 0.5rem 0; }
     .btn-row button { flex: 1; min-width: 140px; }
     .action-bar button.run { background: var(--accent2); color: #fff; border: none; font-weight: 600; }
     .action-bar button.run-warn { background: #b45309; color: #fff; border: none; font-weight: 600; }
@@ -78,7 +81,7 @@
   <main>
     <div class="tabs">
       <button class="active" data-tab="dashboard">Điều khiển</button>
-      <button data-tab="topics">Topic nguồn</button>
+      <button data-tab="topics">Map & Xếp bài</button>
       <button data-tab="alltask">/all — Chat bài cuối</button>
       <button data-tab="channels">Kênh</button>
       <button data-tab="schedule">Lịch auto</button>
@@ -125,24 +128,52 @@
 
     <section id="topics" class="panel">
       <div class="card">
-        <h2>Thêm / sửa topic nguồn</h2>
-        <p class="hint">Chat forum + topic chứa bài nguồn (ghim bài kế tiếp). Khác với chat /all ở tab riêng.</p>
+        <h2>Thêm map mới</h2>
+        <p class="hint">Giống topic_map.txt: <code>vitamin = test</code> — mỗi map có xếp bài & ghim riêng.</p>
         <div class="row">
-          <div><label>Chat ID nguồn</label><input id="t-src" type="number" placeholder="-1001234567890" /></div>
+          <div><label>Chat ID</label><input id="t-src" type="number" placeholder="-100..." /></div>
           <div><label>Topic ID</label><input id="t-topic" type="number" placeholder="5" /></div>
           <div><label>Tên topic</label><input id="t-title" placeholder="vitamin" /></div>
+          <div><label>Map → lệnh kênh</label><input id="t-cmds" placeholder="test, pro" /></div>
         </div>
+        <h3 style="font-size:0.9rem;margin:1rem 0 0.5rem">Xếp bài (độc lập map này)</h3>
         <div class="row">
-          <div><label>Media / lượt</label><input id="t-media" type="number" placeholder="30" /></div>
-          <div><label>Ads / lượt</label><input id="t-ads" type="number" placeholder="2" /></div>
-          <div><label>Media mỗi vòng RR</label><input id="t-round" type="number" placeholder="8" /></div>
-          <div><label>/done mặc định</label><input id="t-cpa" type="number" placeholder="1" /></div>
+          <div><label>/doneN (CPA)</label><input id="t-cpa" type="number" placeholder="1" /></div>
+          <div><label>Mode</label><select id="t-mode"><option value="normal">normal</option><option value="xdone">xdone</option><option value="zdone">zdone</option></select></div>
+          <div><label>Media/lượt</label><input id="t-media" type="number" placeholder="30" /></div>
+          <div><label>Ads/lượt</label><input id="t-ads" type="number" placeholder="2" /></div>
+          <div><label>RR media/vòng</label><input id="t-round" type="number" placeholder="8" /></div>
+          <div><label>xepbai</label><select id="t-xep"><option value="inherit">kế thừa global</option><option value="off">off (tự xếp)</option><option value="on">on (menu tay)</option></select></div>
         </div>
-        <label>Map lệnh kênh</label><input id="t-cmds" placeholder="pro, real" />
-        <label>Kênh no-ads</label><input id="t-no-ads" placeholder="real, preview" />
-        <button class="primary" onclick="saveTopic()">Lưu topic</button>
+        <label>Whitelist lệnh (luôn menu tay, phân cách dấu phẩy)</label>
+        <input id="t-xep-wl" placeholder="sinh, preview" />
+        <label>Kênh no-ads</label><input id="t-no-ads" placeholder="real" />
+        <div class="pin-box">
+          <strong>📍 Bắt đầu lấy bài</strong>
+          <p class="hint">Mặc định: ghim mới nhất trong topic. Hoặc dán link tin bắt đầu chuẩn.</p>
+          <select id="t-pin-mode" style="margin-bottom:0.5rem">
+            <option value="latest">Ghim mới nhất (auto)</option>
+            <option value="link">Link tin cụ thể</option>
+          </select>
+          <input id="t-start-link" placeholder="https://t.me/c/1234567890/5/678" />
+        </div>
+        <div class="btn-row">
+          <button class="primary" onclick="saveTopic()">💾 Lưu map</button>
+          <button class="secondary" onclick="previewTopicForm()">👁 Xem trước xếp</button>
+        </div>
       </div>
-      <div class="card"><h2>Danh sách topic</h2><div id="topics-list"></div></div>
+      <div class="card">
+        <h2>Timeline các map đã cấu hình</h2>
+        <div id="topics-list"></div>
+      </div>
+      <div class="card">
+        <h2>Global xepbai (mặc định cho map inherit)</h2>
+        <div class="row">
+          <div><label>@xepbai</label><select id="g-xep-mode"><option value="off">off — tự xếp</option><option value="on">on — menu tay</option></select></div>
+          <div><label>@xepbaiwhite</label><input id="g-xep-wl" placeholder="sinh, real" /></div>
+        </div>
+        <button class="secondary" onclick="saveGlobalXep()">Lưu global xepbai</button>
+      </div>
     </section>
 
     <section id="alltask" class="panel">
@@ -165,6 +196,18 @@
           </div>
         </div>
         <label><input type="checkbox" id="all-after" checked /> Tự chạy /all sau các lượt topic thường</label>
+        <h3 style="font-size:0.9rem;margin:1rem 0 0.5rem">Xếp bài /all (độc lập)</h3>
+        <div class="row">
+          <div><label>/doneN</label><input id="all-cpa" type="number" value="1" /></div>
+          <div><label>Mode</label><select id="all-mode"><option value="normal">normal</option><option value="xdone">xdone</option><option value="zdone">zdone</option></select></div>
+          <div><label>Media/lượt</label><input id="all-media" type="number" placeholder="auto từ ghim" /></div>
+          <div><label><input type="checkbox" id="all-use-ads" /> Xen ads</label></div>
+        </div>
+        <div class="pin-box">
+          <strong>📍 Bắt đầu lấy bài /all</strong>
+          <select id="all-pin-mode" style="margin-bottom:0.5rem"><option value="latest">Ghim mới nhất</option><option value="link">Link tin</option></select>
+          <input id="all-start-link" placeholder="https://t.me/c/.../topic/msg" />
+        </div>
         <h2 style="margin-top:1rem">Kênh đích <span class="badge" id="all-ch-count">0</span></h2>
         <div class="btn-row">
           <button class="secondary" onclick="selectAllCh(true)">Chọn tất cả</button>
@@ -175,6 +218,7 @@
         <div class="btn-row" style="margin-top:1rem">
           <button class="primary" onclick="saveAllTask()">💾 Lưu cấu hình</button>
           <button class="run" onclick="saveAllTask().then(()=>runAction('run_all_task'))">▶ Lưu & chạy /all</button>
+          <button class="secondary" onclick="previewAllTask()">👁 Xem trước xếp</button>
         </div>
       </div>
     </section>
@@ -424,23 +468,53 @@
 
     function renderTopics(list) {
       if (!list.length) {
-        $("topics-list").innerHTML = "<p style='color:var(--muted)'>Chưa có topic — thêm ở form trên hoặc Import topic_map.txt</p>";
+        $("topics-list").innerHTML = "<p style='color:var(--muted)'>Chưa có map — thêm form trên hoặc Import topic_map.txt</p>";
         return;
       }
-      $("topics-list").innerHTML = list.map(t => `
-        <div style="padding:0.75rem 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;align-items:center">
-          <div>
-            <strong>${t.topic_title || t.topic_id}</strong>
-            <span class="badge ${t.enabled !== false ? "ok" : "warn"}">${t.src_chat_id}:${t.topic_id}</span>
-            <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem">
-              media=${t.target_media_override || "pin"} · ads=${t.target_ads_override || "pin"} · cmds=${(t.mapped_cmds||[]).join(",")}
-            </div>
+      $("topics-list").innerHTML = list.map(t => {
+        const pin = t.start_link ? `link msg ${t.start_msg_id}` : (t.pin_mode === "link" ? "link" : "ghim mới nhất");
+        return `
+        <div class="timeline-item">
+          <h3>${t.topic_title || t.topic_id} <span class="badge">${t.src_chat_id}:${t.topic_id}</span></h3>
+          <div style="font-size:0.85rem;color:var(--muted)">
+            → <strong>${(t.mapped_cmds||[]).join(", ") || "?"}</strong> ·
+            /done${t.default_cpa||"pin"} · ${t.default_mode||"normal"} ·
+            xepbai=${t.xepbai_mode||"inherit"} · ${pin}
           </div>
-          <div style="display:flex;gap:0.35rem">
+          <div style="font-size:0.8rem;color:var(--muted);margin-top:0.25rem">
+            media=${t.target_media_override||"pin"} · ads=${t.target_ads_override||"pin"} · no-ads=${(t.channels_no_ads||[]).join(",")||"—"}
+          </div>
+          <div class="btn-row" style="margin-top:0.5rem">
             <button class="run" style="padding:0.35rem 0.7rem;font-size:0.8rem" onclick="runTopic(${t.src_chat_id},${t.topic_id},'${(t.topic_title||'').replace(/'/g,"")}')">▶ Chạy</button>
+            <button class="secondary" style="padding:0.35rem 0.7rem;font-size:0.8rem" onclick="xepPreview(${t.src_chat_id},${t.topic_id})">👁 Xếp bài</button>
             <button class="secondary" style="padding:0.35rem 0.7rem;font-size:0.8rem" onclick="scanTopic(${t.src_chat_id},${t.topic_id})">📊 Scan</button>
+            <button class="secondary" style="padding:0.35rem 0.7rem;font-size:0.8rem" onclick="fillTopicForm(${t.src_chat_id},${t.topic_id})">✏️ Sửa</button>
           </div>
-        </div>`).join("");
+        </div>`;
+      }).join("");
+    }
+
+    function fillTopicForm(src, topic) {
+      api("/topics").then(list => {
+        const t = list.find(x => x.src_chat_id == src && x.topic_id == topic);
+        if (!t) return;
+        $("t-src").value = t.src_chat_id;
+        $("t-topic").value = t.topic_id;
+        $("t-title").value = t.topic_title || "";
+        $("t-cmds").value = (t.mapped_cmds||[]).join(", ");
+        $("t-cpa").value = t.default_cpa || "";
+        $("t-mode").value = t.default_mode || "normal";
+        $("t-media").value = t.target_media_override || "";
+        $("t-ads").value = t.target_ads_override || "";
+        $("t-round").value = t.media_per_round || "";
+        $("t-xep").value = t.xepbai_mode || "inherit";
+        $("t-xep-wl").value = (t.xepbai_whitelist_cmds||[]).join(", ");
+        $("t-no-ads").value = (t.channels_no_ads||[]).join(", ");
+        $("t-pin-mode").value = t.pin_mode || "latest";
+        $("t-start-link").value = t.start_link || "";
+        document.querySelector('[data-tab="topics"]').click();
+        toast("Đã load map vào form");
+      });
     }
 
     function renderMeta(meta) {
@@ -494,6 +568,12 @@
       $("all-topic").value = task.source_topic_id || "";
       $("all-title").value = task.source_title || "";
       $("all-after").checked = task.run_after_regular !== false;
+      $("all-cpa").value = task.xep_cpa ?? 1;
+      $("all-mode").value = task.xep_mode || "normal";
+      $("all-media").value = task.target_media_override || "";
+      $("all-use-ads").checked = !!task.use_ads;
+      $("all-pin-mode").value = task.pin_mode || "latest";
+      $("all-start-link").value = task.start_link || "";
       $("all-ch-count").textContent = channels.length;
       $("all-channels").innerHTML = channels.map((c, i) => `
         <label class="ch-item">
@@ -508,6 +588,8 @@
       $("g-threshold").value = g.low_media_warn_threshold ?? 50;
       $("g-auto").checked = !!g.auto_run_enabled;
       $("g-port").value = g.web_port ?? 8080;
+      $("g-xep-mode").value = g.xepbai_mode || "off";
+      $("g-xep-wl").value = (g.xepbai_whitelist_cmds || []).join(", ");
       $("tg-api-id").value = g.api_id || "";
       $("tg-inter").value = g.intermediate_chat || "";
       $("tg-ads").value = g.ads_chat || "";
@@ -586,19 +668,50 @@
       };
     }
 
+    function xepPreview(src, topic) {
+      runAction("xep_preview", { src_chat_id: src, topic_id: topic });
+    }
+
     async function saveTopic() {
-      await api("/topics", { method: "POST", body: JSON.stringify({
-        src_chat_id: +$("t-src").value, topic_id: +$("t-topic").value,
+      const body = {
+        src_chat_id: +$("t-src").value,
+        topic_id: +$("t-topic").value,
         topic_title: $("t-title").value.trim(),
         target_media_override: +$("t-media").value || null,
         target_ads_override: +$("t-ads").value || null,
         media_per_round: +$("t-round").value || null,
         default_cpa: +$("t-cpa").value || null,
+        default_mode: $("t-mode").value,
+        xepbai_mode: $("t-xep").value,
+        xepbai_whitelist_cmds: $("t-xep-wl").value.split(",").map(s=>s.trim()).filter(Boolean),
         mapped_cmds: $("t-cmds").value.split(",").map(s=>s.trim()).filter(Boolean),
         channels_no_ads: $("t-no-ads").value.split(",").map(s=>s.trim()).filter(Boolean),
+        pin_mode: $("t-pin-mode").value,
+        start_link: $("t-start-link").value.trim(),
         enabled: true,
+      };
+      await api("/topics", { method: "POST", body: JSON.stringify(body) });
+      if (body.start_link) {
+        await api(`/topics/${body.src_chat_id}/${body.topic_id}/start-link`, {
+          method: "POST", body: JSON.stringify({ link: body.start_link }),
+        });
+      } else if ($("t-pin-mode").value === "latest") {
+        await api(`/topics/${body.src_chat_id}/${body.topic_id}/start-link`, { method: "DELETE" });
+      }
+      toast("Đã lưu map + xếp bài");
+    }
+
+    async function previewTopicForm() {
+      await saveTopic();
+      xepPreview(+$("t-src").value, +$("t-topic").value);
+    }
+
+    async function saveGlobalXep() {
+      await api("/global", { method: "PATCH", body: JSON.stringify({
+        xepbai_mode: $("g-xep-mode").value,
+        xepbai_whitelist_cmds: $("g-xep-wl").value.split(",").map(s=>s.trim()).filter(Boolean),
       })});
-      toast("Đã lưu topic");
+      toast("Đã lưu global xepbai");
     }
 
     function selectAllCh(on) { document.querySelectorAll(".all-ch").forEach(el => el.checked = on); }
@@ -612,8 +725,21 @@
         source_title: $("all-title").value.trim(),
         selected_channel_ids: ids,
         run_after_regular: $("all-after").checked,
+        use_ads: $("all-use-ads").checked,
+        xep_cpa: +$("all-cpa").value || 1,
+        xep_mode: $("all-mode").value,
+        target_media_override: +$("all-media").value || null,
+        pin_mode: $("all-pin-mode").value,
+        start_link: $("all-start-link").value.trim(),
       })});
       toast(`Đã lưu /all — ${ids.length} kênh`);
+    }
+
+    async function previewAllTask() {
+      await saveAllTask();
+      const src = +$("all-src").value, tid = +$("all-topic").value;
+      if (src && tid) xepPreview(src, tid);
+      else toast("Nhập chat + topic /all trước");
     }
 
     async function saveSchedule() {

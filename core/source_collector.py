@@ -122,7 +122,21 @@ async def collect_batch_from_topic(
     pinned_id = topic_cfg.get("pinned_msg_id") or await get_pinned_message_id(
         client, src_chat_id, topic_id
     )
-    cursor_id = topic_cfg.get("cursor_msg_id") or pinned_id
+
+    start_msg_id = topic_cfg.get("start_msg_id")
+    pin_mode = topic_cfg.get("pin_mode") or "latest"
+
+    if start_msg_id:
+        cursor_id = int(start_msg_id)
+    else:
+        cursor_id = topic_cfg.get("cursor_msg_id") or pinned_id
+
+    if pin_mode == "latest" and not start_msg_id:
+        fresh_pin = await get_pinned_message_id(client, src_chat_id, topic_id)
+        if fresh_pin:
+            pinned_id = fresh_pin
+            if not topic_cfg.get("cursor_msg_id"):
+                cursor_id = fresh_pin
     pinned_text = None
     pinned_msg = None
 

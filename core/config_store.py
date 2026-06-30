@@ -22,6 +22,8 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
         "notify_chat_id": None,
         "xepbai_off_default_cpa": 1,
         "xepbai_off_default_mode": "normal",
+        "xepbai_mode": "off",
+        "xepbai_whitelist_cmds": [],
         "low_media_warn_threshold": 50,
         "web_host": "0.0.0.0",
         "web_port": 8080,
@@ -43,6 +45,14 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
         "source_title": "",
         "selected_channel_ids": [],
         "run_after_regular": True,
+        "use_ads": False,
+        "xep_cpa": 1,
+        "xep_mode": "normal",
+        "target_media_override": None,
+        "start_link": "",
+        "start_msg_id": None,
+        "pin_mode": "latest",
+        "cursor_msg_id": None,
     },
 }
 

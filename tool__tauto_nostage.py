@@ -2275,7 +2275,8 @@ async def handler(client, msg: Message):
 
     if text == "/allrun":
         ok = await run_all_task(
-            app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels
+            app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
+            build_and_forward_all=_all_build_and_forward,
         )
         if not ok:
             await safe_send("⚠️ /all task chưa bật hoặc chưa chọn kênh trên web.")
@@ -2341,7 +2342,7 @@ async def handler(client, msg: Message):
 # ─────────────────────────────────────────────────────────
 
 from core.config_store import get_topic_source, load_auto_config, upsert_topic_source
-from core.auto_runner import run_topic_batch, run_all_task
+from core.auto_runner import run_topic_batch, run_all_task, preview_topic_batch
 from core.bot_notify import send_bot_notify
 from core.runtime import append_log, mark_run_done, mark_run_start
 from core.scheduler import scheduler_loop
@@ -2369,6 +2370,30 @@ async def _source_build_and_forward(slot_data, channels, cmd):
     )
 
 
+async def _all_build_and_forward(slot_data, channels):
+    """Xếp bài 1 lần → forward cùng sequence lên tất cả kênh /all."""
+    slot = make_slot()
+    slot["content_msgs"]      = list(slot_data["content_msgs"])
+    slot["content_chat"]      = slot_data["content_chat"]
+    slot["total_media_count"] = slot_data.get("total_media_count", 0)
+    slot["topic_title"]       = slot_data.get("topic_title")
+    slot["skip_ads"]          = not slot_data.get("use_ads", True)
+    slot["_batch_n"]          = len(slot["content_msgs"])
+    if slot_data.get("use_ads") and not slot["ads_msgs"]:
+        await load_ads_into(slot)
+    await build_sequence_for_slot(
+        slot,
+        content_per_ads=slot_data.get("default_cpa", 1),
+        mode=slot_data.get("mode", "normal"),
+    )
+    seq = slot.get("final_sequence") or []
+    if not seq:
+        await _notify("⚠️ /all: sequence rỗng sau xếp bài")
+        return
+    for ch in channels:
+        await forward_sequence_to_channel(ch["id"], list(seq))
+
+
 async def _notify(text):
     level = "error" if "❌" in text else ("warn" if ("⚠️" in text or "HẾT" in text or "📉" in text) else "info")
     append_log(level, text)
@@ -2393,7 +2418,10 @@ async def _try_auto_source_topic(src_id, topic_id, topic_title):
     async def _after_regular():
         task = load_auto_config().get("all_task", {})
         if task.get("enabled") and task.get("run_after_regular"):
-            await run_all_task(app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels)
+            await run_all_task(
+                app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
+                build_and_forward_all=_all_build_and_forward,
+            )
 
     async def _fwd_seq(ch_id, seq):
         await forward_sequence_to_channel(ch_id, list(seq))
@@ -2453,7 +2481,8 @@ async def _run_scheduled_cycle():
     if sch.get("run_all_task_after", True) and task.get("enabled"):
         mark_run_start("/all task")
         await run_all_task(
-            app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels
+            app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
+            build_and_forward_all=_all_build_and_forward,
         )
 
     mark_run_done("ok")
@@ -2529,6 +2558,34 @@ async def _execute_web_action(action: dict):
                 await _notify(f"🧹 Đã xóa {dead} kênh chết — còn {len(load_channels())} kênh")
             else:
                 await _notify(f"✅ Tất cả {len(load_channels())} kênh OK")
+        elif atype == "xep_preview":
+            sid = int(params["src_chat_id"])
+            tid = int(params["topic_id"])
+            p = await preview_topic_batch(app, sid, tid)
+            msg = (
+                f"👁 Preview {sid}:{tid}\n"
+                f"  Bắt đầu: msg {p.get('cursor_start')} | ghim {p.get('pinned_msg_id')}\n"
+                f"  Lấy: {p.get('posts')} bài / {p.get('media')} media (target {p.get('target_media')})\n"
+                f"  Xếp: /done{p.get('cpa')} mode={p.get('mode')} ads={'có' if p.get('use_ads') else 'không'}\n"
+                f"  Kho còn: {p.get('remaining_media')} media\n"
+                + (f"  {p.get('warn')}" if p.get("warn") else "")
+                + (f"\n  Caption ghim: {p.get('pinned_text')[:120]}" if p.get("pinned_text") else "")
+            )
+            await _notify(msg)
+            append_log("info", f"Preview {sid}:{tid} — {p.get('media')} media")
+        elif atype == "apply_start_link":
+            from core.map_config import apply_start_link_to_topic
+            sid = int(params["src_chat_id"])
+            tid = int(params["topic_id"])
+            link = params.get("link") or params.get("start_link") or ""
+            entry = apply_start_link_to_topic(sid, tid, link)
+            await _notify(f"📍 Đã set bắt đầu từ msg {entry.get('start_msg_id')}")
+        elif atype == "clear_start_link":
+            from core.map_config import clear_start_link
+            sid = int(params["src_chat_id"])
+            tid = int(params["topic_id"])
+            clear_start_link(sid, tid)
+            await _notify("📍 Đã xóa link — dùng ghim mới nhất")
         else:
             append_log("warn", f"Action không hỗ trợ: {atype}")
     except Exception as e:
