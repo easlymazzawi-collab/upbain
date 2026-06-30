@@ -22,7 +22,7 @@ from core.config_store import (
 )
 from core.settings import CHANNELS_FILE
 from core.map_limits import parse_map_line, normalize_post_limits, normalize_media_limits
-from core.channel_store import invalidate_channels_cache, rewrite_channels_file
+from core.channel_store import BRANCH_PLAIN, invalidate_channels_cache, rewrite_channels_file
 
 ROOT_FILES = {
     "channels.json": CHANNELS_FILE,
@@ -30,6 +30,9 @@ ROOT_FILES = {
     "topic_map.txt": "topic_map.txt",
     "topic_rr.json": "topic_rr.json",
     "failed_msgs.json": "failed_msgs.json",
+    "plain_channels.json": "plain_channels.json",
+    "plain_folders.json": "plain_folders.json",
+    "plain_topic_map.txt": "plain_topic_map.txt",
 }
 
 DATA_FILES = {
@@ -485,6 +488,7 @@ def apply_import(payload: dict[str, Any]) -> dict[str, Any]:
     applied["files_written"] = sorted(set(applied["files_written"]))
     applied["topics_upserted"] += sync_topic_sources_from_map_file()
     applied["channels_normalized"] = rewrite_channels_file()
+    applied["plain_channels_normalized"] = rewrite_channels_file(BRANCH_PLAIN)
     invalidate_channels_cache()
     return applied
 

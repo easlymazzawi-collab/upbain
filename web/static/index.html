@@ -273,7 +273,7 @@
       </div>
       <div class="card">
         <h2>Map topic → kênh (plain_topic_map.txt)</h2>
-        <p class="hint">Mapping độc lập với nhánh ads — chỉ dùng pool kênh Up bài ở trên.</p>
+        <p class="hint">Ghi chú / mẫu mapping pool Up bài. <strong>Chưa dùng khi chạy auto</strong> — nhánh thuần hiện lấy nguồn tab <strong>/all</strong> + tick <strong>Kênh đích Up bài</strong>.</p>
         <textarea id="plain-topic-map" rows="10" style="font-family:ui-monospace,monospace;font-size:0.82rem"></textarea>
         <button class="primary" style="margin-top:0.5rem" onclick="savePlainTopicMap()">💾 Lưu map</button>
       </div>
@@ -442,6 +442,8 @@
     let linkDrafts = {};
     let allLinkDirty = false;
     let globalFormDirty = false;
+    let scheduleFormDirty = false;
+    let telegramFormDirty = false;
     let plainChannelCache = [];
     let plainTopicMapDirty = false;
     let plainSaveTimer = null;
@@ -1276,34 +1278,43 @@
       renderAllTask(task, channels);
     }
 
+    function panelEditing(panelId, dirty) {
+      const panel = $(panelId);
+      return dirty || (document.activeElement && panel?.contains(document.activeElement));
+    }
+
     function renderGlobal(g) {
-      const panel = $("global");
-      if (globalFormDirty || (document.activeElement && panel?.contains(document.activeElement))) return;
-      $("g-cpa").value = g.xepbai_off_default_cpa ?? 1;
-      $("g-mode").value = g.xepbai_off_default_mode || "normal";
-      $("g-threshold").value = g.low_media_warn_threshold ?? 50;
-      $("g-auto").checked = !!g.auto_run_enabled;
-      $("g-full-batch").checked = g.require_full_batch !== false;
-      $("g-up-confirm").checked = g.require_up_confirm !== false;
-      $("g-poll").value = g.stock_poll_interval_sec ?? 300;
-      $("g-cancel-before").value = g.confirm_cancel_before_sec ?? 900;
-      $("g-port").value = g.web_port ?? 8080;
-      $("g-xep-mode").value = g.xepbai_mode || "off";
-      $("g-xep-wl").value = (g.xepbai_whitelist_cmds || []).join(", ");
-      $("tg-api-id").value = g.api_id || "";
-      $("tg-inter").value = g.intermediate_chat || "";
-      $("tg-ads").value = g.ads_chat || "";
-      $("tg-notify").value = g.notify_chat_id || "";
-      const sch = g.schedule || {};
-      $("sch-enabled").checked = !!sch.enabled;
-      $("sch-tz").value = sch.timezone || "Asia/Ho_Chi_Minh";
-      $("sch-topics").checked = sch.run_all_topics !== false;
-      $("sch-all").checked = sch.run_all_task_after !== false;
-      scheduleTimes = (sch.times && sch.times.length) ? [...sch.times] : ["08:00", "20:00"];
-      renderTimeChips();
-      $("sch-next-hint").textContent = sch.enabled
-        ? "Lịch đang bật — xem lần chạy tiếp trên Dashboard"
-        : "Lịch đang tắt.";
+      if (!panelEditing("global", globalFormDirty)) {
+        $("g-cpa").value = g.xepbai_off_default_cpa ?? 1;
+        $("g-mode").value = g.xepbai_off_default_mode || "normal";
+        $("g-threshold").value = g.low_media_warn_threshold ?? 50;
+        $("g-auto").checked = !!g.auto_run_enabled;
+        $("g-full-batch").checked = g.require_full_batch !== false;
+        $("g-up-confirm").checked = g.require_up_confirm !== false;
+        $("g-poll").value = g.stock_poll_interval_sec ?? 300;
+        $("g-cancel-before").value = g.confirm_cancel_before_sec ?? 900;
+        $("g-port").value = g.web_port ?? 8080;
+        $("g-xep-mode").value = g.xepbai_mode || "off";
+        $("g-xep-wl").value = (g.xepbai_whitelist_cmds || []).join(", ");
+      }
+      if (!panelEditing("telegram", telegramFormDirty)) {
+        $("tg-api-id").value = g.api_id || "";
+        $("tg-inter").value = g.intermediate_chat || "";
+        $("tg-ads").value = g.ads_chat || "";
+        $("tg-notify").value = g.notify_chat_id || "";
+      }
+      if (!panelEditing("schedule", scheduleFormDirty)) {
+        const sch = g.schedule || {};
+        $("sch-enabled").checked = !!sch.enabled;
+        $("sch-tz").value = sch.timezone || "Asia/Ho_Chi_Minh";
+        $("sch-topics").checked = sch.run_all_topics !== false;
+        $("sch-all").checked = sch.run_all_task_after !== false;
+        scheduleTimes = (sch.times && sch.times.length) ? [...sch.times] : ["08:00", "20:00"];
+        renderTimeChips();
+        $("sch-next-hint").textContent = sch.enabled
+          ? "Lịch đang bật — xem lần chạy tiếp trên Dashboard"
+          : "Lịch đang tắt.";
+      }
     }
 
     function renderTimeChips() {
@@ -1429,7 +1440,7 @@
     async function patchPlain(patch, quiet) {
       try {
         const r = await api("/plain-task", { method: "PATCH", body: JSON.stringify(patch) });
-        renderPlainTask(r, channelCache);
+        renderPlainTask(r, plainChannelCache);
         if (!quiet) {
           toast(patch.enabled !== undefined
             ? (patch.enabled ? "Đã bật Up bài" : "Đã tắt Up bài")
@@ -1484,18 +1495,6 @@
       }
     }
 
-    async function saveSchedule() {
-      const r = await api("/schedule", { method: "PATCH", body: JSON.stringify({
-        enabled: $("sch-enabled").checked,
-        times: scheduleTimes.filter(Boolean),
-        timezone: $("sch-tz").value,
-        run_all_topics: $("sch-topics").checked,
-        run_all_task_after: $("sch-all").checked,
-      })});
-      toast("Đã lưu lịch");
-      $("sch-next-hint").textContent = `Lần chạy tiếp: ${fmtTs(r.next_run_at)}`;
-    }
-
     async function saveTelegram() {
       const body = {
         api_id: +$("tg-api-id").value || null,
@@ -1507,8 +1506,13 @@
       const bot = $("tg-bot-token").value.trim();
       if (hash) body.api_hash = hash;
       if (bot) body.bot_token = bot;
-      await api("/telegram", { method: "PATCH", body: JSON.stringify(body) });
-      toast("Đã lưu Telegram/Bot");
+      try {
+        await api("/telegram", { method: "PATCH", body: JSON.stringify(body) });
+        telegramFormDirty = false;
+        toast("Đã lưu Telegram/Bot");
+      } catch (e) {
+        toast("Lỗi lưu Telegram: " + (e.message || e));
+      }
     }
 
     async function saveGlobal() {
@@ -1530,9 +1534,30 @@
       try {
         await api("/global", { method: "PATCH", body: JSON.stringify(body) });
         globalFormDirty = false;
+        if (wt) {
+          $("token").value = wt;
+          connectStream();
+        }
         toast("Đã lưu cài đặt");
       } catch (e) {
         toast("Lỗi lưu: " + (e.message || e));
+      }
+    }
+
+    async function saveSchedule() {
+      try {
+        const r = await api("/schedule", { method: "PATCH", body: JSON.stringify({
+        enabled: $("sch-enabled").checked,
+        times: scheduleTimes.filter(Boolean),
+        timezone: $("sch-tz").value,
+        run_all_topics: $("sch-topics").checked,
+        run_all_task_after: $("sch-all").checked,
+      })});
+        scheduleFormDirty = false;
+        toast("Đã lưu lịch");
+        $("sch-next-hint").textContent = `Lần chạy tiếp: ${fmtTs(r.next_run_at)}`;
+      } catch (e) {
+        toast("Lỗi lưu lịch: " + (e.message || e));
       }
     }
 
@@ -1557,6 +1582,10 @@
     $("all-source-link").addEventListener("input", () => { allLinkDirty = true; });
     $("global").addEventListener("input", () => { globalFormDirty = true; });
     $("global").addEventListener("change", () => { globalFormDirty = true; });
+    $("schedule").addEventListener("input", () => { scheduleFormDirty = true; });
+    $("schedule").addEventListener("change", () => { scheduleFormDirty = true; });
+    $("telegram").addEventListener("input", () => { telegramFormDirty = true; });
+    $("telegram").addEventListener("change", () => { telegramFormDirty = true; });
     $("topics-list").addEventListener("input", e => {
       if (e.target?.id && e.target.matches("input[type=text]")) {
         linkDrafts[e.target.id] = e.target.value;

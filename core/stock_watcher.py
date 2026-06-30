@@ -96,8 +96,10 @@ async def stock_poll_loop(run_topic: RunTopicFn) -> None:
                             continue
                         sid, tid = t.get("src_chat_id"), t.get("topic_id")
                         title = t.get("topic_title") or ""
-                        if not sid or not tid:
+                        if not sid:
                             continue
+                        if tid is None:
+                            tid = 0
                         try:
                             if t.get("_is_all"):
                                 await run_topic("all_task", sid, tid, title, check_only=True)

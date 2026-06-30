@@ -923,7 +923,7 @@ async def _auto_process_batch(slot, n, gen=None):
 
         tid = slot.get("topic_id")
         sid = slot.get("topic_src_id")
-        if sid and tid and load_auto_config().get("global", {}).get("auto_run_enabled", True):
+        if sid and tid is not None and load_auto_config().get("global", {}).get("auto_run_enabled", True):
             if system_armed():
                 await _try_auto_source_topic(sid, tid, slot.get("topic_title") or "")
             return
@@ -2590,8 +2590,10 @@ async def _run_all_topics_only(*, force_run=False):
             continue
         sid, tid = t.get("src_chat_id"), t.get("topic_id")
         title = t.get("topic_title") or ""
-        if not sid or not tid:
+        if not sid:
             continue
+        if tid is None:
+            tid = 0
         mark_run_start(f"Topic {title or tid}")
         await _try_auto_source_topic(sid, tid, title, manual=True, force_run=force_run)
         ran += 1

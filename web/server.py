@@ -747,10 +747,11 @@ async def _read_uploads(files: list[UploadFile]) -> list[tuple[str, bytes]]:
 async def import_resync(_=Depends(_auth)):
     """Đọc lại channels.json + topic_map.txt trên disk → đồng bộ web."""
     n_ch = rewrite_channels_file(BRANCH_ADS)
+    n_plain = rewrite_channels_file(BRANCH_PLAIN)
     n_topics = sync_topic_sources_from_map_file()
-    msg = f"Đồng bộ lại: {n_ch} kênh, {n_topics} topic map"
+    msg = f"Đồng bộ lại: {n_ch} kênh ads, {n_plain} kênh Up bài, {n_topics} topic map"
     append_log("info", msg)
-    return {"ok": True, "channels": n_ch, "topics": n_topics, "message": msg, "snapshot": _snapshot()}
+    return {"ok": True, "channels": n_ch, "plain_channels": n_plain, "topics": n_topics, "message": msg, "snapshot": _snapshot()}
 
 
 @app.get("/api/import/scan")
