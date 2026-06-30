@@ -360,6 +360,19 @@
         <button class="primary" onclick="saveTelegram()">Lưu Telegram</button>
       </div>
       <div class="card">
+        <h2>Bot ghim nguồn (Auto-Pin)</h2>
+        <p class="hint">
+          Bot <strong>admin</strong> trong nhóm/topic nguồn, quyền <strong>Pin Messages</strong>.
+          Tool dùng bot này để ghim/bỏ ghim sau mỗi lượt up (silent) — không cần userbot có quyền pin.
+          <br/>Để trống → dùng chung token bot thông báo bên dưới.
+          <br/><strong>Không cần đăng ký kênh forum trên web</strong> — dán link bắt đầu (chat/topic/msg) là tool tự biết.
+        </p>
+        <label>Pin Bot Token</label>
+        <input id="tg-pin-bot-token" type="password" placeholder="123456:ABC... (Auto-Pin bot — để trống = dùng bot thông báo)" />
+        <p class="hint" id="tg-pin-hint">—</p>
+        <button class="primary" onclick="saveTelegram()">Lưu bot ghim</button>
+      </div>
+      <div class="card">
         <h2>Bot thông báo trạng thái</h2>
         <p class="hint">Bot gửi: hết bài, kho thấp, xong lượt, lỗi... vào chat/group bạn chọn.</p>
         <label>Bot Token</label>
@@ -1562,6 +1575,12 @@
         $("tg-inter").value = g.intermediate_chat || "";
         $("tg-ads").value = g.ads_chat || "";
         $("tg-notify").value = g.notify_chat_id || "";
+        const pinHint = $("tg-pin-hint");
+        if (pinHint) {
+          pinHint.textContent = g.has_pin_bot_token
+            ? "✓ Đã có token ghim — nhớ add bot vào nhóm nguồn (admin + Pin Messages)"
+            : "Chưa có token ghim — nhập Pin Bot hoặc Bot thông báo";
+        }
       }
       if (!panelEditing("schedule", scheduleFormDirty)) {
         const sch = g.schedule || {};
@@ -1775,8 +1794,10 @@
       };
       const hash = $("tg-api-hash").value.trim();
       const bot = $("tg-bot-token").value.trim();
+      const pinBot = $("tg-pin-bot-token").value.trim();
       if (hash) body.api_hash = hash;
       if (bot) body.bot_token = bot;
+      if (pinBot) body.pin_bot_token = pinBot;
       try {
         await api("/telegram", { method: "PATCH", body: JSON.stringify(body) });
         telegramFormDirty = false;

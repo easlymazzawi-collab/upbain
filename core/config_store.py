@@ -19,6 +19,7 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
         "intermediate_chat": None,
         "ads_chat": None,
         "bot_token": "",
+        "pin_bot_token": "",
         "notify_chat_id": None,
         "xepbai_off_default_cpa": 1,
         "xepbai_off_default_mode": "normal",

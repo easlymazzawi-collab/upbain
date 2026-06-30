@@ -216,6 +216,7 @@ class TelegramIn(BaseModel):
     intermediate_chat: int | None = None
     ads_chat: int | None = None
     bot_token: str = ""
+    pin_bot_token: str = ""
     notify_chat_id: int | None = None
 
 
@@ -242,9 +243,10 @@ def _snapshot() -> dict[str, Any]:
         sch.get("timezone") or "Asia/Ho_Chi_Minh",
     ) if sch.get("enabled") else 0
     g = cfg.get("global", {})
-    safe_global = {k: v for k, v in g.items() if k not in ("api_hash", "bot_token")}
+    safe_global = {k: v for k, v in g.items() if k not in ("api_hash", "bot_token", "pin_bot_token")}
     safe_global["has_api_hash"] = bool(g.get("api_hash"))
     safe_global["has_bot_token"] = bool(g.get("bot_token"))
+    safe_global["has_pin_bot_token"] = bool(g.get("pin_bot_token") or g.get("bot_token"))
     channels = load_channels(BRANCH_ADS)
     folders = load_folders(BRANCH_ADS)
     plain_channels = load_channels(BRANCH_PLAIN)
@@ -414,6 +416,8 @@ async def patch_telegram(body: TelegramIn, _=Depends(_auth)):
         g["ads_chat"] = body.ads_chat
     if body.bot_token:
         g["bot_token"] = body.bot_token
+    if body.pin_bot_token:
+        g["pin_bot_token"] = body.pin_bot_token
     if body.notify_chat_id is not None:
         g["notify_chat_id"] = body.notify_chat_id
     save_auto_config(cfg)
@@ -424,6 +428,7 @@ async def patch_telegram(body: TelegramIn, _=Depends(_auth)):
         "notify_chat_id": g.get("notify_chat_id"),
         "has_api_hash": bool(g.get("api_hash")),
         "has_bot_token": bool(g.get("bot_token")),
+        "has_pin_bot_token": bool(g.get("pin_bot_token") or g.get("bot_token")),
     }
 
 

@@ -51,6 +51,7 @@ ENV_TO_GLOBAL: dict[str, tuple[str, type]] = {
     "WEB_TOKEN": ("web_token", str),
     "BOT_TOKEN": ("bot_token", str),
     "TELEGRAM_BOT_TOKEN": ("bot_token", str),
+    "PIN_BOT_TOKEN": ("pin_bot_token", str),
     "NOTIFY_CHAT_ID": ("notify_chat_id", int),
     "NOTIFICATION_CHAT_ID": ("notify_chat_id", int),
 }

@@ -45,6 +45,12 @@ def bot_token() -> str:
     return str(_global().get("bot_token") or "").strip()
 
 
+def pin_bot_token() -> str:
+    """Token bot ghim — riêng hoặc dùng chung bot thông báo."""
+    v = str(_global().get("pin_bot_token") or "").strip()
+    return v or bot_token()
+
+
 def notify_chat_id() -> int | None:
     v = _global().get("notify_chat_id")
     return int(v) if v is not None else None
