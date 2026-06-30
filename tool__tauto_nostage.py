@@ -2442,9 +2442,24 @@ async def _all_build_and_forward(slot_data, channels):
             slot_data, all_chs, use_ads=bool(slot_data.get("use_ads", False)),
         )
     if plain_chs:
-        await _build_all_sequence_and_forward(
-            {**slot_data, "use_ads": False}, plain_chs, use_ads=False,
-        )
+        plain_msgs = slot_data.get("plain_content_msgs")
+        if plain_msgs is None:
+            from core.all_config import trim_posts_for_plain
+            plain_msgs = trim_posts_for_plain(slot_data.get("content_msgs") or [])
+        plain_media = slot_data.get("plain_total_media_count")
+        if plain_media is None and plain_msgs:
+            plain_media = slot_data.get("total_media_count", 0)
+        if plain_msgs:
+            await _build_all_sequence_and_forward(
+                {
+                    **slot_data,
+                    "use_ads": False,
+                    "content_msgs": list(plain_msgs),
+                    "total_media_count": plain_media or 0,
+                },
+                plain_chs,
+                use_ads=False,
+            )
 
 
 async def _notify(text, parse_mode=None):

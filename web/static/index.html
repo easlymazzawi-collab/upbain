@@ -202,6 +202,9 @@
           <span class="badge" id="plain-status">—</span>
         </label>
         <p class="hint">Lệnh <code>/all</code> trên Telegram + auto lịch đều gửi bài lên các kênh này (kèm tab /all nếu bật).</p>
+        <label>Bỏ qua N bài cuối (không up nhánh này)</label>
+        <input id="plain-skip" type="number" min="0" value="0" onchange="patchPlain({skip_last_posts:+this.value||0})" />
+        <p class="hint" id="plain-skip-hint">0 = up hết batch. Ví dụ: 2 = bài cuối cùng trong nhóm /all không lên kênh Up bài.</p>
       </div>
       <div class="card">
         <h2>Kênh Up bài <span class="badge" id="plain-ch-count">0</span></h2>
@@ -649,6 +652,11 @@
       $("plain-status").innerHTML = plain.enabled
         ? `<span class="badge ok">ON</span>` : `<span class="badge warn">OFF</span>`;
       $("plain-ch-count").textContent = (plain.selected_channel_ids || []).length;
+      $("plain-skip").value = plain.skip_last_posts ?? 0;
+      const skip = plain.skip_last_posts || 0;
+      $("plain-skip-hint").textContent = skip > 0
+        ? `Đang bỏ ${skip} bài cuối — chỉ nhánh Up bài, tab /all vẫn up đủ batch.`
+        : "0 = up hết batch. Ví dụ: 2 = bài cuối trong nhóm /all không lên kênh Up bài.";
       renderChannelPicker("plain-channels", "plain-ch", channels, plain.selected_channel_ids, "debouncePlainChannels()");
     }
 

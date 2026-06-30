@@ -51,13 +51,29 @@ def merge_all_task(patch: dict[str, Any]) -> dict[str, Any]:
 
 def merge_plain_task(patch: dict[str, Any]) -> dict[str, Any]:
     cfg = load_auto_config()
-    cur = dict(cfg.get("plain_task") or {"enabled": False, "selected_channel_ids": []})
+    cur = dict(cfg.get("plain_task") or {"enabled": False, "selected_channel_ids": [], "skip_last_posts": 0})
     for k, v in patch.items():
         if v is not None:
             cur[k] = v
+    cur["skip_last_posts"] = max(0, int(cur.get("skip_last_posts") or 0))
     cfg["plain_task"] = cur
     save_auto_config(cfg)
     return cur
+
+
+def plain_skip_last(cfg: dict | None = None) -> int:
+    cfg = cfg or load_auto_config()
+    return max(0, int((cfg.get("plain_task") or {}).get("skip_last_posts") or 0))
+
+
+def trim_posts_for_plain(posts: list, skip_last: int | None = None, cfg: dict | None = None) -> list:
+    """Bỏ N bài cuối khỏi lượt up nhánh không ads (AtomicPost hoặc msg_id list)."""
+    skip = plain_skip_last(cfg) if skip_last is None else max(0, int(skip_last or 0))
+    if skip <= 0 or not posts:
+        return list(posts)
+    if skip >= len(posts):
+        return []
+    return list(posts[:-skip])
 
 
 def destination_channel_ids(cfg: dict | None = None) -> list[int]:

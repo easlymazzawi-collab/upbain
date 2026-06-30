@@ -62,6 +62,7 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
     "plain_task": {
         "enabled": False,
         "selected_channel_ids": [],
+        "skip_last_posts": 0,
     },
 }
 

@@ -82,6 +82,7 @@ class AllTaskPatchIn(BaseModel):
 class PlainTaskPatchIn(BaseModel):
     enabled: bool | None = None
     selected_channel_ids: list[int] | None = None
+    skip_last_posts: int | None = None
 
 
 class AllTaskIn(BaseModel):

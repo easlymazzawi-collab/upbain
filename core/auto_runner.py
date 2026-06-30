@@ -240,7 +240,7 @@ async def run_all_task(
         await notify("⚠️ /all: chưa có link nguồn — dán link tab /all rồi Lưu.")
         return False
 
-    from core.all_config import load_destination_channels, split_destination_channels
+    from core.all_config import load_destination_channels, plain_skip_last, split_destination_channels, trim_posts_for_plain
 
     all_chs, plain_chs = split_destination_channels(cfg)
     channels = load_destination_channels(cfg)
@@ -299,12 +299,23 @@ async def run_all_task(
 
     xep = resolve_xep_settings(tcfg, g, "/all")
     use_ads = bool(task.get("use_ads", False))
+    skip_n = plain_skip_last(cfg)
+    plain_posts = trim_posts_for_plain(result.posts, cfg=cfg) if plain_chs else []
+    plain_media = sum(p.media_count for p in plain_posts)
+
+    plain_line = ""
+    if plain_chs:
+        if skip_n > 0:
+            plain_line = f"\nUp bài: {len(plain_posts)}/{result.total_posts} bài ({plain_media} media) — bỏ {skip_n} bài cuối"
+        else:
+            plain_line = f"\nUp bài: {len(plain_posts)} bài ({plain_media} media)"
 
     await _notify_html(
         notify,
         f"📦 <b>/all</b> · {msg_link(src_chat, src_topic, label='topic')}\n"
         f"{result.total_posts} bài / {result.total_media} media → "
-        f"{len(all_chs)} kênh /all + {len(plain_chs)} up bài\n"
+        f"{len(all_chs)} kênh /all + {len(plain_chs)} up bài"
+        f"{plain_line}\n"
         f"Xếp: /done{xep['default_cpa']} mode={task.get('xep_mode', 'normal')} "
         f"ads={'có' if use_ads and all_chs else 'không'}",
     )
@@ -312,6 +323,8 @@ async def run_all_task(
     if build_and_forward_all:
         slot_data: dict[str, Any] = {
             "content_msgs": [p.msg_id for p in result.posts],
+            "plain_content_msgs": [p.msg_id for p in plain_posts],
+            "plain_total_media_count": plain_media,
             "content_chat": src_chat,
             "total_media_count": result.total_media,
             "topic_title": task.get("source_title") or "/all",
@@ -326,9 +339,16 @@ async def run_all_task(
         }
         await build_and_forward_all(slot_data, channels)
     else:
-        seq = [(src_chat, p.msg_id) for p in result.posts]
+        all_ids = {int(c["id"]) for c in all_chs}
+        plain_ids = {int(c["id"]) for c in plain_chs}
+        full_seq = [(src_chat, p.msg_id) for p in result.posts]
+        plain_seq = [(src_chat, p.msg_id) for p in plain_posts]
         for ch in channels:
-            await forward_sequence_fn(ch["id"], seq)
+            cid = int(ch["id"])
+            if cid in plain_ids and cid not in all_ids:
+                await forward_sequence_fn(ch["id"], plain_seq)
+            else:
+                await forward_sequence_fn(ch["id"], full_seq)
 
     if task.get("start_msg_id") and task.get("pin_mode") == "link":
         cfg2 = load_auto_config()
