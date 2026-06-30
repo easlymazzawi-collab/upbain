@@ -1,0 +1,15 @@
+# Runtime / secrets — never commit
+.env
+*.session
+*.session-journal
+
+# Runtime state files (auto-created in the working directory)
+channels.json
+folders.json
+failed_msgs.json
+topic_rr.json
+topic_map.txt
+
+# Python
+__pycache__/
+*.pyc
