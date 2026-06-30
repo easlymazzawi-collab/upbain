@@ -6,7 +6,7 @@ import os
 import time
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -249,7 +249,12 @@ class PlatformIn(BaseModel):
     admin_notify_group_id: int | None = None
     membership_channel_id: int | None = None
     membership_channel_username: str | None = None
+    force_join_check_sec: int | None = None
+    force_join_message: str | None = None
     backup_forum_id: int | None = None
+    backup_to_telegram: bool | None = None
+    backup_interval_hours: int | None = None
+    backup_keep_days: int | None = None
     share_event: dict | None = None
     bot: PlatformBotIn | None = None
     bots: list[PlatformBotIn] | None = None
@@ -1284,11 +1289,32 @@ async def platform_day_items(day_id: int, _=Depends(_auth)):
 
 
 @app.get("/api/platform/backup")
-async def platform_backup(_=Depends(_auth)):
+async def platform_backup_status(_=Depends(_auth)):
+    """Trạng thái backup — port clender GET /api/backup."""
+    from research_platform.backup import get_backup_status
+
+    return {"ok": True, "status": get_backup_status()}
+
+
+@app.post("/api/platform/backup")
+async def platform_backup_run(body: dict | None = Body(default=None), _=Depends(_auth)):
+    """Chạy backup ngay — port clender POST /api/backup."""
+    from research_platform.backup import run_backup_now
+
+    send_tg = (body or {}).get("telegram") if body else None
+    result = run_backup_now(send_telegram=send_tg)
+    append_log("info", f"Backup run: ok={result.get('ok')} tg={result.get('sent_telegram')}")
+    if not result.get("ok"):
+        raise HTTPException(500, "Backup thất bại")
+    return result
+
+
+@app.get("/api/platform/backup/download")
+async def platform_backup_download(_=Depends(_auth)):
     from research_platform.backup import build_backup_zip
 
     data, filename = build_backup_zip()
-    append_log("info", f"Backup ZIP {filename}")
+    append_log("info", f"Backup ZIP download {filename}")
     return Response(
         content=data,
         media_type="application/zip",

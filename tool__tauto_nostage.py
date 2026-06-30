@@ -3130,7 +3130,10 @@ async def main():
         if load_platform_config().get("enabled"):
             asyncio.ensure_future(start_delivery_bot_background())
             asyncio.ensure_future(_platform_rollup_loop())
-            log("START", "Research Platform bot delivery + rollup nền")
+            from research_platform.backup import start_backup_scheduler
+
+            start_backup_scheduler()
+            log("START", "Research Platform bot delivery + rollup + backup nền")
     except Exception as e:
         log("WARN", f"Platform bot không khởi động: {e}")
 

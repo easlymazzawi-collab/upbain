@@ -418,11 +418,22 @@
         <div class="row">
           <div><label>Membership channel ID</label><input id="plat-mem-ch" type="number" /></div>
           <div><label>@channel username</label><input id="plat-mem-un" placeholder="mychannel" /></div>
+          <div><label>Check membership (giây)</label><input id="plat-mem-sec" type="number" min="60" value="300" /></div>
         </div>
+        <label>Force-join message</label>
+        <textarea id="plat-mem-msg" rows="2" placeholder="Tin nhắn khi chưa join kênh"></textarea>
+        <div class="row" style="margin-top:0.75rem">
+          <div><label>Backup forum ID</label><input id="plat-backup-forum" type="number" placeholder="= admin forum" /></div>
+          <div><label>Interval (giờ)</label><input id="plat-backup-hours" type="number" min="1" value="24" /></div>
+          <div><label>Giữ (ngày)</label><input id="plat-backup-keep" type="number" min="1" value="7" /></div>
+        </div>
+        <label><input type="checkbox" id="plat-backup-tg" checked /> Gửi backup lên Telegram (topic ZIP)</label>
+        <p class="hint" id="plat-backup-status">Backup: —</p>
         <label><input type="checkbox" id="plat-share-ev" /> Bật đua top share</label>
         <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap">
           <button class="primary" onclick="savePlatform()">Lưu Platform</button>
-          <button class="secondary" onclick="downloadPlatformBackup()">Backup ZIP</button>
+          <button class="secondary" onclick="downloadPlatformBackup()">Tải ZIP</button>
+          <button class="secondary" onclick="runPlatformBackup()">Backup ngay</button>
           <button class="secondary" onclick="runRollup()">Rollup tháng</button>
           <button class="secondary" onclick="recheckAds()">Recheck ads</button>
           <button class="secondary" onclick="restartPlatformBots()">Restart all bots</button>
@@ -1888,7 +1899,14 @@
       $("plat-contrib-topic").value = plat.admin_contrib_topic_id || "";
       $("plat-mem-ch").value = plat.membership_channel_id || "";
       $("plat-mem-un").value = plat.membership_channel_username || "";
+      $("plat-mem-sec").value = plat.force_join_check_sec ?? 300;
+      $("plat-mem-msg").value = plat.force_join_message || "";
+      $("plat-backup-forum").value = plat.backup_forum_id || "";
+      $("plat-backup-hours").value = plat.backup_interval_hours ?? 24;
+      $("plat-backup-keep").value = plat.backup_keep_days ?? 7;
+      $("plat-backup-tg").checked = plat.backup_to_telegram !== false;
       $("plat-share-ev").checked = !!(plat.share_event && plat.share_event.enabled);
+      loadBackupStatus();
       renderPlatformBots(plat.bots || (plat.bot ? [plat.bot] : []));
       if (botStatus && botStatus.length) {
         $("plat-bot-status").textContent = botStatus.map(b =>
@@ -1924,6 +1942,12 @@
         admin_contrib_topic_id: $("plat-contrib-topic").value ? +$("plat-contrib-topic").value : null,
         membership_channel_id: $("plat-mem-ch").value ? +$("plat-mem-ch").value : null,
         membership_channel_username: $("plat-mem-un").value.trim(),
+        force_join_check_sec: parseInt($("plat-mem-sec").value, 10) || 300,
+        force_join_message: $("plat-mem-msg").value.trim(),
+        backup_forum_id: $("plat-backup-forum").value ? +$("plat-backup-forum").value : null,
+        backup_to_telegram: $("plat-backup-tg").checked,
+        backup_interval_hours: parseInt($("plat-backup-hours").value, 10) || 24,
+        backup_keep_days: parseInt($("plat-backup-keep").value, 10) || 7,
         share_event: { enabled: $("plat-share-ev").checked },
         ...extra,
       };
@@ -1982,9 +2006,38 @@
       } catch (e) { toast("Lỗi: " + e.message); }
     }
 
+    async function loadBackupStatus() {
+      const el = $("plat-backup-status");
+      if (!el) return;
+      try {
+        const r = await api("/platform/backup");
+        const s = r.status || {};
+        const parts = [
+          s.scheduler_on ? "scheduler ON" : "scheduler OFF",
+          s.last_backup_at ? `lần cuối ${s.last_backup_at}` : "chưa có file",
+          `${s.local_file_count || 0} file local`,
+        ];
+        if (s.skip_reasons && s.skip_reasons.length) parts.push(s.skip_reasons.join("; "));
+        el.textContent = "Backup: " + parts.join(" · ");
+      } catch (e) {
+        el.textContent = "Backup: không đọc được trạng thái";
+      }
+    }
+
+    async function runPlatformBackup() {
+      try {
+        const r = await api("/platform/backup", {
+          method: "POST",
+          body: JSON.stringify({ telegram: $("plat-backup-tg").checked }),
+        });
+        toast(r.sent_telegram ? "Backup OK + đã gửi Telegram" : "Backup OK (local)");
+        loadBackupStatus();
+      } catch (e) { toast("Backup lỗi: " + e.message); }
+    }
+
     async function downloadPlatformBackup() {
       try {
-        const r = await fetch("/api/platform/backup", { headers: headers() });
+        const r = await fetch("/api/platform/backup/download", { headers: headers() });
         if (!r.ok) throw new Error(await r.text());
         const blob = await r.blob();
         const a = document.createElement("a");

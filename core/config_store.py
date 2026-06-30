@@ -87,7 +87,15 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
             "admin_notify_group_id": None,
             "membership_channel_id": None,
             "membership_channel_username": "",
+            "force_join_check_sec": 300,
+            "force_join_message": (
+                "🔒 Bạn cần tham gia kênh để dùng bot.\n"
+                "Nhấn Join → bấm ✅ Kiểm tra lại."
+            ),
             "backup_forum_id": None,
+            "backup_to_telegram": True,
+            "backup_interval_hours": 24,
+            "backup_keep_days": 7,
             "share_event": {"enabled": False, "period_start": None, "period_end": None},
             "bots": [],
             "bot": {

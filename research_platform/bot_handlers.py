@@ -54,23 +54,77 @@ def _keyboard():
 
 
 async def _copy_item(bot, chat_id: int, item: dict) -> bool:
+    """Gửi media — port clender _serve_album: copy → forward batch → từng msg."""
     from aiogram.exceptions import TelegramRetryAfter
 
     src_chat = item["src_chat_id"]
     msg_ids = item.get("album_msg_ids") or [item["src_msg_id"]]
+    if not msg_ids:
+        return False
+
+    # Thử 1: copy_messages / copy_message (batch hoặc đơn)
+    for attempt in range(3):
+        try:
+            if len(msg_ids) > 1:
+                result = await bot.copy_messages(
+                    chat_id=chat_id,
+                    from_chat_id=src_chat,
+                    message_ids=msg_ids,
+                )
+            else:
+                result = await bot.copy_message(
+                    chat_id=chat_id,
+                    from_chat_id=src_chat,
+                    message_id=msg_ids[0],
+                )
+            if result:
+                await asyncio.sleep(_delivery_delay())
+                return True
+            break
+        except TelegramRetryAfter as e:
+            wait = float(getattr(e, "retry_after", 3)) + 1
+            log.warning("copy FloodWait %ss (%s/3)", wait, attempt + 1)
+            await asyncio.sleep(wait)
+        except Exception as e:
+            log.warning("copy_messages from %s: %s: %s", src_chat, type(e).__name__, e)
+            break
+
+    # Thử 2: forward_messages / forward_message
     try:
         if len(msg_ids) > 1:
-            await bot.copy_messages(chat_id=chat_id, from_chat_id=src_chat, message_ids=msg_ids)
+            result = await bot.forward_messages(
+                chat_id=chat_id,
+                from_chat_id=src_chat,
+                message_ids=msg_ids,
+            )
         else:
-            await bot.copy_message(chat_id=chat_id, from_chat_id=src_chat, message_id=msg_ids[0])
-        await asyncio.sleep(_delivery_delay())
-        return True
-    except TelegramRetryAfter as e:
-        await asyncio.sleep(float(e.retry_after) + 0.5)
-        return await _copy_item(bot, chat_id, item)
+            result = await bot.forward_message(
+                chat_id=chat_id,
+                from_chat_id=src_chat,
+                message_id=msg_ids[0],
+            )
+        if result:
+            await asyncio.sleep(_delivery_delay())
+            return True
     except Exception as e:
-        log.warning("copy fail: %s", e)
-        return False
+        log.warning("forward_messages from %s: %s: %s", src_chat, type(e).__name__, e)
+
+    # Thử 3: từng message
+    sent = 0
+    for mid in msg_ids:
+        try:
+            await bot.copy_message(chat_id=chat_id, from_chat_id=src_chat, message_id=mid)
+            sent += 1
+            await asyncio.sleep(max(0.2, _delivery_delay()))
+        except Exception:
+            try:
+                await bot.forward_message(chat_id=chat_id, from_chat_id=src_chat, message_id=mid)
+                sent += 1
+                await asyncio.sleep(max(0.2, _delivery_delay()))
+            except Exception as e2:
+                log.warning("Cannot serve msg %s: %s", mid, e2)
+
+    return sent > 0
 
 
 async def deliver_day_to_user(bot, user_id: int, day: dict) -> tuple[int, int]:
@@ -129,7 +183,7 @@ def build_handlers_for_bot(bot_cfg: dict, bot_db_id: int | None):
         sent, total = await deliver_day_to_user(msg.bot, msg.from_user.id, day)
         uname = bot_cfg.get("username") or "bot"
         ref = create_day_share_ref(day["id"], bot_db_id or 0, msg.from_user.id)
-        share = f"https://t.me/{uname}?start=share_day_{ref}"
+        share = f"https://t.me/{uname}?start={ref}"
         allow_fwd = user_is_vip(msg.from_user.id) or plat.get("require_vip_for_archive") is False
         fwd_note = "\n🔗 VIP: được share media." if allow_fwd else ""
         await msg.answer(
@@ -165,6 +219,17 @@ def build_handlers_for_bot(bot_cfg: dict, bot_db_id: int | None):
                 if row:
                     await _handle_day(msg, row["topic_label"])
                     return
+        if payload.isdigit() and len(payload) >= 8:
+            from research_platform.db import connect
+            with connect() as c:
+                row = c.execute("SELECT * FROM share_refs WHERE ref_code=?", (payload,)).fetchone()
+            if row:
+                record_share_click(row["ref_code"], msg.from_user.id)
+                with connect() as c:
+                    drow = c.execute("SELECT topic_label FROM days WHERE id=?", (row["day_id"],)).fetchone()
+                if drow:
+                    await _handle_day(msg, drow["topic_label"])
+                    return
         pending = pop_pending(msg.from_user.id)
         if pending and pending.startswith("day"):
             await _handle_day(msg, pending.replace("day:", ""))
@@ -178,7 +243,9 @@ def build_handlers_for_bot(bot_cfg: dict, bot_db_id: int | None):
 
     @dp.callback_query(F.data == "mem_recheck")
     async def cb_mem_recheck(cb: CallbackQuery):
-        from research_platform.membership import check_membership
+        from research_platform.membership import check_membership, invalidate
+
+        invalidate(cb.from_user.id)
         ok, _ = await check_membership(cb.bot, cb.from_user.id)
         if ok:
             await cb.message.answer("✅ Đã join — dùng menu bên dưới.", reply_markup=_keyboard())
