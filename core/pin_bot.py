@@ -52,15 +52,12 @@ def _thread_kw(topic_id: int | None) -> dict:
 async def bot_unpin_message(chat_id: int, msg_id: int | None, topic_id: int | None = None) -> None:
     if not msg_id:
         return
-    try:
-        await _bot_api("unpinChatMessage", {
-            "chat_id": chat_id,
-            "message_id": int(msg_id),
-            **_thread_kw(topic_id),
-        })
-        log.info("Bot unpin chat=%s msg=%s topic=%s", chat_id, msg_id, topic_id or 0)
-    except Exception as e:
-        log.warning("bot unpin chat=%s msg=%s: %s", chat_id, msg_id, e)
+    await _bot_api("unpinChatMessage", {
+        "chat_id": chat_id,
+        "message_id": int(msg_id),
+        **_thread_kw(topic_id),
+    })
+    log.info("Bot unpin chat=%s msg=%s topic=%s", chat_id, msg_id, topic_id or 0)
 
 
 async def bot_pin_message(
@@ -86,5 +83,8 @@ async def bot_advance_topic_pin(
     new_pin_msg_id: int,
 ) -> None:
     """Bỏ ghim cũ → ghim bài tiếp theo (silent)."""
-    await bot_unpin_message(chat_id, old_pin_msg_id, topic_id)
+    try:
+        await bot_unpin_message(chat_id, old_pin_msg_id, topic_id)
+    except Exception as e:
+        log.warning("bot unpin (bỏ qua) chat=%s msg=%s: %s", chat_id, old_pin_msg_id, e)
     await bot_pin_message(chat_id, new_pin_msg_id, topic_id)

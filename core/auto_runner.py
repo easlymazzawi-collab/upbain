@@ -255,18 +255,25 @@ async def run_topic_batch(
             next_pin_id = found
 
     if next_pin_id:
+        pin_err: Exception | None = None
         try:
             await advance_topic_pin(
                 client, src_chat_id, topic_id,
                 result.pinned_msg_id, next_pin_id,
             )
-            upsert_topic_source(src_chat_id, topic_id, {
-                "cursor_msg_id": next_pin_id,
-                "pinned_msg_id": next_pin_id,
-            }, branch=branch)
         except Exception as e:
+            pin_err = e
             log.warning("advance pin: %s", e)
-            await notify(f"⚠️ Không ghim bài tiếp: {e}")
+        upsert_topic_source(src_chat_id, topic_id, {
+            "cursor_msg_id": next_pin_id,
+            "pinned_msg_id": next_pin_id,
+        }, branch=branch)
+        if pin_err:
+            await notify(
+                f"⚠️ Không ghim được trên Telegram: {pin_err}\n"
+                f"📍 Đã lưu cursor msg {next_pin_id} — lần sau vẫn lấy đúng bài tiếp theo.\n"
+                f"Kiểm tra: Pin bot token + bot/userbot là admin nhóm nguồn (quyền ghim)."
+            )
 
     update_after_batch(
         src_chat_id, topic_id,
@@ -429,7 +436,25 @@ async def run_all_task(
         save_auto_config(cfg2)
 
     if result.next_pin_msg_id:
-        await advance_topic_pin(client, src_chat, src_topic, result.pinned_msg_id, result.next_pin_msg_id)
+        pin_err: Exception | None = None
+        try:
+            await advance_topic_pin(
+                client, src_chat, src_topic,
+                result.pinned_msg_id, result.next_pin_msg_id,
+            )
+        except Exception as e:
+            pin_err = e
+            log.warning("/all advance pin: %s", e)
+        cfg2 = load_auto_config()
+        at = cfg2.setdefault("all_task", {})
+        at["cursor_msg_id"] = result.next_pin_msg_id
+        at["pinned_msg_id"] = result.next_pin_msg_id
+        save_auto_config(cfg2)
+        if pin_err:
+            await notify(
+                f"⚠️ /all: không ghim Telegram — {pin_err}\n"
+                f"📍 Đã lưu cursor msg {result.next_pin_msg_id} trong config."
+            )
 
     return True
 

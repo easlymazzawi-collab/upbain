@@ -259,7 +259,6 @@ async def collect_batch_from_topic(
         last_taken_id = msg.id
 
         if not all_task_mode and not count_by_posts and total_media >= int(target_media):
-            next_pin = None
             break
 
     if last_taken_id and next_pin is None and not all_task_mode:

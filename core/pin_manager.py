@@ -19,7 +19,6 @@ def _flood_wait_seconds(err: BaseException) -> int:
     return 3
 
 
-
 def _use_pin_bot() -> bool:
     from core.settings import pin_bot_token
     return bool(pin_bot_token())
@@ -51,7 +50,10 @@ async def unpin_message(
         return
     if _use_pin_bot():
         from core.pin_bot import bot_unpin_message
-        await bot_unpin_message(chat_id, msg_id, topic_id)
+        try:
+            await bot_unpin_message(chat_id, msg_id, topic_id)
+        except Exception as e:
+            log.warning("bot unpin fail chat=%s msg=%s: %s", chat_id, msg_id, e)
         return
     try:
         await client.unpin_chat_message(chat_id, msg_id)
@@ -69,18 +71,25 @@ async def pin_message(
     msg_id: int,
     topic_id: int | None = None,
 ) -> None:
+    last_err: Exception | None = None
     if _use_pin_bot():
         from core.pin_bot import bot_pin_message
-        await bot_pin_message(chat_id, msg_id, topic_id)
-        return
+        try:
+            await bot_pin_message(chat_id, msg_id, topic_id)
+            return
+        except Exception as e:
+            last_err = e
+            log.warning("bot pin fail chat=%s msg=%s — thử userbot: %s", chat_id, msg_id, e)
     try:
         await client.pin_chat_message(chat_id, msg_id, disable_notification=True)
-        log.info("Pinned chat=%s msg=%s", chat_id, msg_id)
+        log.info("Pinned chat=%s msg=%s topic=%s", chat_id, msg_id, topic_id or 0)
     except FloodWait as e:
         await asyncio.sleep(_flood_wait_seconds(e) + 1)
         await client.pin_chat_message(chat_id, msg_id, disable_notification=True)
     except RPCError as e:
         log.warning("pin fail chat=%s msg=%s: %s", chat_id, msg_id, e)
+        if last_err:
+            raise RuntimeError(f"Bot: {last_err}; userbot: {e}") from e
         raise
 
 
@@ -95,7 +104,10 @@ async def advance_topic_pin(
     tid = int(topic_id) if topic_id is not None else 0
     if _use_pin_bot():
         from core.pin_bot import bot_advance_topic_pin
-        await bot_advance_topic_pin(chat_id, tid, old_pin_msg_id, new_pin_msg_id)
-        return
+        try:
+            await bot_advance_topic_pin(chat_id, tid, old_pin_msg_id, new_pin_msg_id)
+            return
+        except Exception as e:
+            log.warning("bot advance pin fail — thử userbot: %s", e)
     await unpin_message(client, chat_id, old_pin_msg_id, tid)
     await pin_message(client, chat_id, new_pin_msg_id, tid)
