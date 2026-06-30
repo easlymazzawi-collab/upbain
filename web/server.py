@@ -422,10 +422,11 @@ async def patch_all_task(body: AllTaskPatchIn, _=Depends(_auth)):
         raise HTTPException(400, str(e))
     link_saved = "start_link" in patch
     if link_saved and data.get("source_chat_id"):
+        tid = data.get("source_topic_id") or 0
+        loc = f"{data['source_chat_id']}" + (f":{tid}" if tid else " (supergroup)")
         append_log(
             "info",
-            f"/all lưu link → {data['source_chat_id']}:{data.get('source_topic_id')} "
-            f"(msg {data.get('start_msg_id') or '—'})",
+            f"/all lưu link → {loc} (msg {data.get('start_msg_id') or '—'})",
         )
     elif "enabled" in patch:
         append_log("info", f"/all {'bật' if data.get('enabled') else 'tắt'}")
@@ -433,8 +434,10 @@ async def patch_all_task(body: AllTaskPatchIn, _=Depends(_auth)):
         append_log("info", f"/all chọn {len(data.get('selected_channel_ids') or [])} kênh đích")
     msg = None
     if link_saved:
+        tid = data.get("source_topic_id") or 0
+        loc = f"{data['source_chat_id']}" + (f":{tid}" if tid else "")
         msg = (
-            f"✓ Đã lưu nguồn {data['source_chat_id']}:{data.get('source_topic_id')} "
+            f"✓ Đã lưu nguồn {loc or data['source_chat_id']} "
             "— userbot quét batch trong ~2s"
         )
     return {**data, "message": msg}

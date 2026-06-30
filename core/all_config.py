@@ -23,7 +23,9 @@ def apply_link_fields(task: dict[str, Any]) -> dict[str, Any]:
             out["_link_error"] = err
         elif parsed:
             out["source_chat_id"] = parsed["src_chat_id"]
-            out["source_topic_id"] = parsed["topic_id"]
+            out["source_topic_id"] = parsed.get("topic_id", 0)
+            if out["source_topic_id"] is None:
+                out["source_topic_id"] = 0
             if parsed.get("msg_id"):
                 out["start_msg_id"] = parsed["msg_id"]
                 out["cursor_msg_id"] = parsed["msg_id"]
@@ -170,4 +172,4 @@ def split_destination_channels(cfg: dict | None = None) -> tuple[list[dict], lis
 def all_source_ready(cfg: dict | None = None) -> bool:
     cfg = cfg or load_auto_config()
     t = cfg.get("all_task") or {}
-    return bool(t.get("enabled") and t.get("source_chat_id") and t.get("source_topic_id"))
+    return bool(t.get("enabled") and t.get("source_chat_id"))

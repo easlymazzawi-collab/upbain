@@ -33,7 +33,9 @@ async def refresh_all_batch_preview(client) -> dict | None:
     task = cfg.get("all_task") or {}
     src_chat = task.get("source_chat_id")
     src_topic = task.get("source_topic_id")
-    if not src_chat or not src_topic:
+    if src_topic is None:
+        src_topic = 0
+    if not src_chat:
         set_all_batch_preview(None)
         return None
 
@@ -76,7 +78,7 @@ async def all_batch_preview_loop(client) -> None:
         try:
             cfg = load_auto_config()
             task = cfg.get("all_task") or {}
-            if task.get("source_chat_id") and task.get("source_topic_id"):
+            if task.get("source_chat_id"):
                 await refresh_all_batch_preview(client)
         except Exception as e:
             log.warning("all batch preview: %s", e)

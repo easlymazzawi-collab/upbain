@@ -7,14 +7,17 @@ from pyrogram.errors import FloodWait, RPCError
 log = logging.getLogger("pin_manager")
 
 
-async def get_pinned_message_id(client, chat_id: int, topic_id: int) -> int | None:
+async def get_pinned_message_id(client, chat_id: int, topic_id: int | None) -> int | None:
+    kw: dict = {}
+    if topic_id and int(topic_id) != 0:
+        kw["reply_to_message_id"] = int(topic_id)
     try:
         async for msg in client.search_messages(
             chat_id,
             query="",
             filter="pinned",
-            reply_to_message_id=topic_id,
             limit=5,
+            **kw,
         ):
             if msg and not msg.empty:
                 return msg.id
@@ -25,8 +28,8 @@ async def get_pinned_message_id(client, chat_id: int, topic_id: int) -> int | No
                 chat_id,
                 query="",
                 filter=enums.MessagesFilter.PINNED,
-                reply_to_message_id=topic_id,
                 limit=5,
+                **kw,
             ):
                 if msg and not msg.empty:
                     return msg.id

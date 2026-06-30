@@ -14,12 +14,11 @@ _CHAT_ONLY_RE = re.compile(r"^-?\d+$")
 
 def parse_source_link(raw: str) -> dict[str, Any] | None:
     """
-    Link nguồn /all — hỗ trợ:
-      https://t.me/c/123/5/678
-      -1001234567890:5
-      -1001234567890:5:678
-      -1001234567890/5/678
-    Chỉ chat ID (-100...) → thiếu topic.
+    Link nguồn /all — forum topic hoặc supergroup thường:
+      https://t.me/c/123/5/678   (forum)
+      https://t.me/c/123/678     (supergroup — chỉ cần chat + msg)
+      -1001234567890             (chỉ chat ID)
+      -1001234567890:5           (chat + topic forum)
     """
     raw = (raw or "").strip()
     if not raw:
@@ -29,9 +28,10 @@ def parse_source_link(raw: str) -> dict[str, Any] | None:
         p = parse_telegram_link(raw)
         if not p or not p.get("src_chat_id"):
             return None
-        out: dict[str, Any] = {"src_chat_id": int(p["src_chat_id"])}
-        if p.get("topic_id") is not None:
-            out["topic_id"] = int(p["topic_id"])
+        out: dict[str, Any] = {
+            "src_chat_id": int(p["src_chat_id"]),
+            "topic_id": int(p["topic_id"]) if p.get("topic_id") is not None else 0,
+        }
         if p.get("msg_id"):
             out["msg_id"] = int(p["msg_id"])
         return out
@@ -47,7 +47,7 @@ def parse_source_link(raw: str) -> dict[str, Any] | None:
         return out
 
     if _CHAT_ONLY_RE.match(raw):
-        return {"src_chat_id": normalize_chat_id(raw), "topic_id": None, "_chat_only": True}
+        return {"src_chat_id": normalize_chat_id(raw), "topic_id": 0}
 
     return None
 
@@ -55,15 +55,10 @@ def parse_source_link(raw: str) -> dict[str, Any] | None:
 def source_link_error(parsed: dict[str, Any] | None, raw: str) -> str | None:
     if not raw.strip():
         return "Chưa có link nguồn."
-    if not parsed:
+    if not parsed or not parsed.get("src_chat_id"):
         return (
-            "Link không hợp lệ. Dán link Telegram dạng "
-            "https://t.me/c/1234567890/5/678 hoặc nhập -100xxx:topic_id"
-        )
-    if parsed.get("_chat_only") or parsed.get("topic_id") is None:
-        return (
-            f"Thiếu topic ID (bạn nhập {raw!r}). "
-            "Dán link đủ t.me/c/.../topic/msg hoặc -100xxx:topic_id"
+            "Link không hợp lệ. Dán link Telegram "
+            "(https://t.me/c/.../678) hoặc chat ID (-100...)"
         )
     return None
 

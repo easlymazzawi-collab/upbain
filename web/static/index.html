@@ -181,8 +181,9 @@
           <strong>Bật /all</strong>
           <span class="badge" id="all-status">—</span>
         </label>
-        <label>Link nguồn (topic/group)</label>
-        <input id="all-source-link" placeholder="https://t.me/c/1234567890/5/678 hoặc -100xxx:topic_id" />
+        <p class="hint">Supergroup thường: chỉ cần <strong>chat ID</strong> hoặc link tin trong nhóm. Forum mới cần topic.</p>
+        <label>Link nguồn hoặc chat ID</label>
+        <input id="all-source-link" placeholder="-1004401775054 hoặc https://t.me/c/.../678" />
         <div id="all-save-status" class="status-banner warn" style="display:none;margin-top:0.5rem"></div>
         <div class="btn-row" style="margin-top:0.5rem">
           <button id="btn-save-all-link" class="primary" onclick="saveAllLink()">💾 Lưu link</button>
@@ -732,18 +733,20 @@
       $("all-status").innerHTML = task.enabled
         ? `<span class="badge ok">ON</span>` : `<span class="badge warn">OFF</span>`;
       $("all-source-link").value = task.start_link || "";
-      const srcOk = task.source_chat_id && task.source_topic_id;
+      const srcOk = !!task.source_chat_id;
+      const tid = task.source_topic_id || 0;
       $("all-source-hint").textContent = srcOk
-        ? `✓ Nguồn: ${task.source_chat_id}:${task.source_topic_id}${task.start_msg_id ? " · msg " + task.start_msg_id : ""}`
+        ? `✓ Nguồn: ${task.source_chat_id}${tid ? ":" + tid : " (supergroup)"}${task.start_msg_id ? " · msg " + task.start_msg_id : ""}`
         : (task.start_link
-          ? "⚠ Link chưa hợp lệ — cần dạng https://t.me/c/.../topic/msg hoặc -100xxx:topic_id"
-          : "Chưa có link nguồn — dán link topic rồi bấm Lưu link");
+          ? "⚠ Link chưa hợp lệ — thử -100... hoặc link t.me"
+          : "Chưa có nguồn — nhập chat ID (-100...) hoặc link rồi Lưu");
       $("all-ch-count").textContent = (task.selected_channel_ids || []).length;
       renderChannelPicker("all-channels", "all-ch", channels, task.selected_channel_ids, "debounceAllChannels()");
     }
 
     function tmePostLink(chatId, topicId, msgId) {
       const raw = String(chatId).replace(/^-100/, "");
+      if (!topicId) return `https://t.me/c/${raw}/${msgId}`;
       return `https://t.me/c/${raw}/${topicId}/${msgId}`;
     }
 
@@ -762,7 +765,7 @@
       if (!allTask?.source_chat_id) {
         badge.textContent = "—";
         badge.className = "badge warn";
-        $("all-batch-summary").textContent = "Chưa có link nguồn — dán link rồi Lưu.";
+        $("all-batch-summary").textContent = "Chưa có nguồn — nhập chat ID hoặc link rồi Lưu.";
         $("all-batch-updated").textContent = "";
         return;
       }
@@ -1036,7 +1039,7 @@
       const link = $("all-source-link").value.trim();
       const btn = $("btn-save-all-link");
       if (!link) {
-        setAllSaveStatus("warn", "⚠ Dán link nguồn trước — ví dụ https://t.me/c/1234567890/5/678");
+        setAllSaveStatus("warn", "⚠ Nhập chat ID (-100...) hoặc link Telegram trước");
         toast("Dán link nguồn trước");
         return;
       }

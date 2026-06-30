@@ -236,7 +236,9 @@ async def run_all_task(
         return False
     src_chat = task.get("source_chat_id")
     src_topic = task.get("source_topic_id")
-    if not src_chat or not src_topic:
+    if src_topic is None:
+        src_topic = 0
+    if not src_chat:
         await notify("⚠️ /all: chưa có link nguồn — dán link tab /all rồi Lưu.")
         return False
 
