@@ -43,6 +43,7 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
         },
     },
     "topic_sources": {},
+    "plain_topic_sources": {},
     "all_task": {
         "enabled": False,
         "source_chat_id": None,
@@ -130,23 +131,42 @@ def save_inventory(inv: dict) -> None:
         _write_json(INVENTORY_FILE, inv)
 
 
-def get_topic_source(src_chat_id: int, topic_id: int) -> dict | None:
+def get_topic_source(src_chat_id: int, topic_id: int, branch: str | None = None) -> dict | None:
+    from core.branch_map import sources_key
+    from core.channel_store import BRANCH_ADS
+
     cfg = load_auto_config()
-    return cfg.get("topic_sources", {}).get(topic_key(src_chat_id, topic_id))
+    b = branch or BRANCH_ADS
+    return cfg.get(sources_key(b), {}).get(topic_key(src_chat_id, topic_id))
 
 
-def upsert_topic_source(src_chat_id: int, topic_id: int, data: dict) -> dict:
+def upsert_topic_source(
+    src_chat_id: int,
+    topic_id: int,
+    data: dict,
+    branch: str | None = None,
+) -> dict:
+    from core.branch_map import sources_key
+    from core.channel_store import BRANCH_ADS
+
+    b = branch or BRANCH_ADS
     cfg = load_auto_config()
     key = topic_key(src_chat_id, topic_id)
-    entry = cfg.setdefault("topic_sources", {}).get(key, {})
+    sk = sources_key(b)
+    entry = cfg.setdefault(sk, {}).get(key, {})
     entry.update(data)
     entry["src_chat_id"] = src_chat_id
     entry["topic_id"] = topic_id
-    cfg["topic_sources"][key] = entry
+    if b == "plain":
+        entry["use_ads"] = False
+    cfg[sk][key] = entry
     save_auto_config(cfg)
     return entry
 
 
-def list_topic_sources() -> list[dict]:
+def list_topic_sources(branch: str | None = None) -> list[dict]:
+    from core.branch_map import sources_key
+    from core.channel_store import BRANCH_ADS
+
     cfg = load_auto_config()
-    return list(cfg.get("topic_sources", {}).values())
+    return list(cfg.get(sources_key(branch or BRANCH_ADS), {}).values())

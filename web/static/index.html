@@ -236,28 +236,43 @@
     <section id="plain" class="panel">
       <div class="card">
         <h2>Up bài — nhánh không ads</h2>
-        <p class="hint">Kênh chỉ cần <strong>up bài thuần</strong> (không xen ads). Dùng chung link nguồn tab <strong>/all</strong>. Folder + map + alias riêng — không lẫn nhánh có ads.</p>
+        <p class="hint">
+          <strong>Giống tab Topic map</strong> nhưng pool kênh riêng (<code>plain_channels.json</code>) — <strong>không xen ads</strong>.
+          Lịch auto chạy cả nhánh ads lẫn Up bài.
+        </p>
         <label class="toggle-row" style="display:flex;align-items:center;gap:0.75rem;margin:1rem 0">
           <input type="checkbox" id="plain-enabled" onchange="patchPlain({enabled:this.checked})" />
-          <strong>Bật nhánh Up bài</strong>
+          <strong>Bật chế độ batch /all cho Up bài</strong>
           <span class="badge" id="plain-status">—</span>
         </label>
-        <p class="hint">Lệnh <code>/all</code> trên Telegram + auto lịch đều gửi bài lên các kênh này (kèm tab /all nếu bật).</p>
-        <label>Bỏ qua N bài cuối (nhanh)</label>
-        <input id="plain-skip" type="number" min="0" value="0" onchange="applyPlainSkip()" />
-        <p class="hint" id="plain-skip-hint">Hoặc tick từng bài bên dưới — lưu real-time.</p>
+        <p class="hint">Batch /all (tùy chọn): dùng chung nguồn tab <strong>/all</strong>, gửi bài thuần tới kênh tick bên dưới — <em>khác</em> với topic map auto.</p>
       </div>
+
       <div class="card">
-        <h2>Chọn bài up nhánh này <span class="badge" id="plain-post-count">0</span></h2>
-        <div class="btn-row">
-          <button class="secondary" onclick="selectAllPlainPosts(true)">Chọn tất cả</button>
-          <button class="secondary" onclick="selectAllPlainPosts(false)">Bỏ chọn</button>
-          <button class="secondary" onclick="runAction('refresh_all_batch')">🔄 Quét lại batch</button>
+        <h2>① Topic map Up bài <span class="badge" id="plain-map-count">0</span></h2>
+        <p class="hint">Mapping nguồn → alias kênh pool Up bài. Ghi <code>plain_topic_map.txt</code> — tool <strong>thực thi</strong> khi auto/lịch.</p>
+        <div class="topic-row" style="margin-bottom:1rem">
+          <label>Tên topic nguồn</label>
+          <input id="new-plain-map-topic" placeholder="vitamin" />
+          <div class="row" style="margin-top:0.5rem">
+            <div><label>Alias kênh Up bài</label><input id="new-plain-map-cmd" placeholder="pro" /></div>
+            <div><label>Số media</label><input id="new-plain-map-media" type="number" min="0" placeholder="30" /></div>
+            <div><label>Số bài</label><input id="new-plain-map-posts" type="number" min="0" placeholder="—" /></div>
+          </div>
+          <details style="margin:0.5rem 0">
+            <summary style="cursor:pointer;color:var(--muted);font-size:0.85rem">Scoped (chat:topic) — tùy chọn</summary>
+            <div class="row" style="margin-top:0.5rem">
+              <div><label>Chat ID</label><input id="new-plain-map-chat" placeholder="-100..." /></div>
+              <div><label>Topic ID</label><input id="new-plain-map-tid" type="number" placeholder="5" /></div>
+            </div>
+          </details>
+          <button class="primary" style="margin-top:0.5rem" onclick="addPlainTopicMap()">➕ Thêm mapping Up bài</button>
         </div>
-        <div id="plain-post-list"><p class="hint">Chưa có dữ liệu batch...</p></div>
+        <div id="plain-topics-list"></div>
       </div>
+
       <div class="card">
-        <h2>Folder & kênh nhánh Up bài <span class="badge" id="plain-pool-count">0</span></h2>
+        <h2>② Pool kênh Up bài <span class="badge" id="plain-pool-count">0</span></h2>
         <p class="hint" id="plain-folder-info">—</p>
         <label>Thêm folder (link addlist)</label>
         <div class="topic-link-row">
@@ -265,27 +280,33 @@
           <button class="primary" onclick="addPlainFolder()">Thêm folder</button>
         </div>
         <div class="btn-row">
-          <button class="secondary" onclick="runAction('sync_plain_folders')">🔄 Sync folder Up bài</button>
+          <button class="secondary" onclick="runAction('sync_plain_folders')">🔄 Sync folder</button>
           <button class="secondary" onclick="runAction('check_plain_channels')">✅ Check kênh chết</button>
-          <button class="secondary" onclick="runAction('gen_plain_topic_map')">🗺 Sinh map mẫu</button>
+          <button class="secondary" onclick="runAction('gen_plain_topic_map')">🗺 Gợi ý map</button>
         </div>
-        <div class="ch-list" id="plain-pool-list" style="max-height:240px;margin-bottom:1rem"></div>
+        <div class="ch-list" id="plain-pool-list" style="max-height:240px;margin-top:0.75rem"></div>
       </div>
-      <div class="card">
-        <h2>Map topic → kênh (plain_topic_map.txt)</h2>
-        <p class="hint">Ghi chú / mẫu mapping pool Up bài. <strong>Chưa dùng khi chạy auto</strong> — nhánh thuần hiện lấy nguồn tab <strong>/all</strong> + tick <strong>Kênh đích Up bài</strong>.</p>
-        <textarea id="plain-topic-map" rows="10" style="font-family:ui-monospace,monospace;font-size:0.82rem"></textarea>
-        <button class="primary" style="margin-top:0.5rem" onclick="savePlainTopicMap()">💾 Lưu map</button>
-      </div>
-      <div class="card">
-        <h2>Kênh đích Up bài <span class="badge" id="plain-ch-count">0</span></h2>
-        <p class="hint">Tick kênh nhận bài từ nhánh này — lưu real-time.</p>
+
+      <details class="card" style="margin-top:0">
+        <summary style="cursor:pointer;font-weight:600">③ Batch /all — chọn bài + kênh (tùy chọn)</summary>
+        <p class="hint" style="margin-top:0.75rem">Chỉ dùng khi bật toggle trên. Không thay topic map auto.</p>
+        <label>Bỏ qua N bài cuối</label>
+        <input id="plain-skip" type="number" min="0" value="0" onchange="applyPlainSkip()" />
+        <p class="hint" id="plain-skip-hint">—</p>
+        <h3 style="margin:1rem 0 0.5rem">Chọn bài <span class="badge" id="plain-post-count">0</span></h3>
+        <div class="btn-row">
+          <button class="secondary" onclick="selectAllPlainPosts(true)">Chọn tất cả</button>
+          <button class="secondary" onclick="selectAllPlainPosts(false)">Bỏ chọn</button>
+          <button class="secondary" onclick="runAction('refresh_all_batch')">🔄 Quét batch</button>
+        </div>
+        <div id="plain-post-list"><p class="hint">Cần lưu link nguồn tab /all trước.</p></div>
+        <h3 style="margin:1rem 0 0.5rem">Kênh nhận batch thuần <span class="badge" id="plain-ch-count">0</span></h3>
         <div class="btn-row">
           <button class="secondary" onclick="selectAllCh('plain-ch',true)">Chọn tất cả</button>
           <button class="secondary" onclick="selectAllCh('plain-ch',false)">Bỏ chọn</button>
         </div>
         <div class="ch-list" id="plain-channels"></div>
-      </div>
+      </details>
     </section>
 
     <section id="channels" class="panel">
@@ -440,12 +461,14 @@
     let mapPostDrafts = {};
     let mapMediaDrafts = {};
     let linkDrafts = {};
+    let plainLinkDrafts = {};
+    let plainMapPostDrafts = {};
+    let plainMapMediaDrafts = {};
     let allLinkDirty = false;
     let globalFormDirty = false;
     let scheduleFormDirty = false;
     let telegramFormDirty = false;
     let plainChannelCache = [];
-    let plainTopicMapDirty = false;
     let plainSaveTimer = null;
     let plainPostSaveTimer = null;
     let allBatchPreview = null;
@@ -871,6 +894,110 @@
       }
     }
 
+    function renderPlainTopics(list) {
+      $("plain-map-count").textContent = list?.length || 0;
+      if (!list?.length) {
+        $("plain-topics-list").innerHTML =
+          "<p style='color:var(--muted)'>Chưa có map Up bài — thêm ở trên hoặc Import → Đồng bộ lại.</p>";
+        return;
+      }
+      $("plain-topics-list").innerHTML = list.map(t => {
+        const rowId = "plain-" + topicRowId(t);
+        const name = t.topic_title || `topic ${t.topic_id || "?"}`;
+        const primaryCmd = (t.mapped_cmds || [])[0] || "";
+        const safeTitle = (t.topic_title || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        const displayLink = plainLinkDrafts[rowId] !== undefined ? plainLinkDrafts[rowId] : (t.start_link || "");
+        const escLink = displayLink.replace(/"/g, "&quot;");
+        const status = t.start_link && displayLink.trim() === t.start_link
+          ? `<span class="badge ok">✓ msg ${t.start_msg_id || "?"}</span>`
+          : (displayLink.trim() ? `<span class="badge warn">chưa lưu</span>` : `<span class="badge warn">chưa có link</span>`);
+        return `<div class="topic-row">
+          <div class="topic-info" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+            <strong>${escHtml(name)}</strong>
+            <span>→</span>
+            <input class="plain-map-cmd-in" style="width:100px;margin:0" value="${primaryCmd}"
+              data-src="${t.src_chat_id || 0}" data-tid="${t.topic_id || 0}" data-title="${safeTitle}"
+              data-old="${primaryCmd}" onchange="savePlainMapCmd(this)" />
+            ${status}
+            <span class="badge ok">Up bài · không ads</span>
+            <button class="secondary" style="margin-left:auto;padding:0.25rem 0.6rem"
+              onclick="deletePlainTopicMap(${t.src_chat_id || 0}, ${t.topic_id || 0}, '${safeTitle}')">🗑 Xóa</button>
+          </div>
+          <div class="topic-link-row">
+            <input id="${rowId}" type="text" placeholder="https://t.me/c/1234567890/5/678" value="${escLink}" />
+            <button class="primary" onclick="savePlainTopicLink(${t.src_chat_id || 0}, ${t.topic_id || 0}, '${safeTitle}')">💾 Lưu link</button>
+            <button class="run" onclick="runPlainTopic(${t.src_chat_id || 0}, ${t.topic_id || 0}, '${safeTitle}')">▶ Chạy</button>
+          </div>
+        </div>`;
+      }).join("");
+    }
+
+    async function addPlainTopicMap() {
+      const topic_title = $("new-plain-map-topic").value.trim();
+      const channel_cmd = $("new-plain-map-cmd").value.trim().replace(/^\//, "");
+      const post_count = +$("new-plain-map-posts").value || null;
+      const media_count = +$("new-plain-map-media").value || null;
+      const src_chat_id = +$("new-plain-map-chat").value || null;
+      const topic_id = $("new-plain-map-tid").value.trim() ? +$("new-plain-map-tid").value : null;
+      if (!topic_title || !channel_cmd) { toast("Nhập topic + alias kênh Up bài"); return; }
+      try {
+        const body = { topic_title, channel_cmd, post_count, media_count };
+        if (src_chat_id) body.src_chat_id = src_chat_id;
+        if (topic_id != null) body.topic_id = topic_id;
+        const r = await api("/plain/topics/map", { method: "POST", body: JSON.stringify(body) });
+        toast(r.message || "Đã thêm map Up bài");
+        $("new-plain-map-topic").value = "";
+        $("new-plain-map-cmd").value = "";
+        $("new-plain-map-posts").value = "";
+        $("new-plain-map-media").value = "";
+      } catch (e) { toast("Lỗi: " + (e.message || e)); }
+    }
+
+    async function savePlainMapCmd(el) {
+      const old_cmd = el.dataset.old || el.value;
+      const new_cmd = el.value.trim().replace(/^\//, "");
+      if (!new_cmd) { toast("Alias không được trống"); return; }
+      try {
+        await api(`/plain/topics/${el.dataset.src}/${el.dataset.tid}/mapping`, {
+          method: "PATCH",
+          body: JSON.stringify({ topic_title: el.dataset.title, old_cmd, new_cmd }),
+        });
+        el.dataset.old = new_cmd;
+        toast(`Up bài → /${new_cmd}`);
+      } catch (e) { toast("Lỗi: " + (e.message || e)); }
+    }
+
+    async function deletePlainTopicMap(src, tid, title) {
+      if (!confirm(`Xóa map Up bài "${title || src + ':' + tid}"?`)) return;
+      try {
+        const q = title ? `?topic_title=${encodeURIComponent(title)}` : "";
+        await api(`/plain/topics/${src}/${tid}${q}`, { method: "DELETE" });
+        toast("Đã xóa map Up bài");
+      } catch (e) { toast("Lỗi: " + (e.message || e)); }
+    }
+
+    async function savePlainTopicLink(src, topic, title) {
+      const rowId = "plain-" + topicRowId({ src_chat_id: src, topic_id: topic, topic_title: title });
+      const link = ($(rowId)?.value || "").trim();
+      if (!link) { toast("Dán link trước"); return; }
+      try {
+        await api("/plain/topics/start-link", {
+          method: "POST",
+          body: JSON.stringify({ src_chat_id: src || null, topic_id: topic || null, topic_title: title || "", link }),
+        });
+        delete plainLinkDrafts[rowId];
+        toast("Đã lưu link Up bài");
+      } catch (e) { toast("Lỗi: " + (e.message || e)); }
+    }
+
+    function runTopic(src, topic, title) {
+      runAction("run_topic", { src_chat_id: src, topic_id: topic, topic_title: title || "" });
+    }
+
+    function runPlainTopic(src, topic, title) {
+      runAction("run_plain_topic", { src_chat_id: src, topic_id: topic, topic_title: title || "" });
+    }
+
     async function saveTopicLink(src, topic, title) {
       const rowId = topicRowId({ src_chat_id: src, topic_id: topic, topic_title: title });
       const link = ($(rowId)?.value || "").trim();
@@ -1029,23 +1156,6 @@
       } catch (e) {
         toast("Lỗi: " + (e.message || e));
       }
-    }
-
-    async function savePlainTopicMap() {
-      const content = $("plain-topic-map").value;
-      try {
-        await api("/plain/topic-map", { method: "PATCH", body: JSON.stringify({ content }) });
-        plainTopicMapDirty = false;
-        toast("Đã lưu plain_topic_map.txt");
-      } catch (e) {
-        toast("Lỗi: " + (e.message || e));
-      }
-    }
-
-    function syncPlainTopicMap(text) {
-      if (plainTopicMapDirty) return;
-      const el = $("plain-topic-map");
-      if (document.activeElement !== el) el.value = text || "";
     }
 
     function renderPending(pending) {
@@ -1338,11 +1448,11 @@
         renderRuntime(snap.runtime);
         renderInventory(snap.inventory);
         renderTopics(Object.values(snap.config?.topic_sources || {}));
+        renderPlainTopics(Object.values(snap.config?.plain_topic_sources || {}));
         renderAllBatchPreview(snap.runtime?.all_batch_preview, snap.config?.all_task || {});
         renderChannels(channels, snap.config?.all_task || {});
         renderPlainTask(snap.config?.plain_task || {}, plainCh);
         renderPlainPool(plainCh, snap.plain_folders || []);
-        syncPlainTopicMap(snap.plain_topic_map || "");
         renderChannelsPage(channels, snap.folders || []);
         renderGlobal(snap.config?.global || {});
         if (snap.runtime && snap.runtime.next_run_at) {
@@ -1379,10 +1489,6 @@
       } catch (e) {
         toast("Lỗi: " + e.message);
       }
-    }
-
-    function runTopic(src, topic, title) {
-      runAction("run_topic", { src_chat_id: src, topic_id: topic, topic_title: title || "" });
     }
 
     function scanTopic(src, topic) {
@@ -1591,7 +1697,11 @@
         linkDrafts[e.target.id] = e.target.value;
       }
     });
-    $("plain-topic-map").addEventListener("input", () => { plainTopicMapDirty = true; });
+    $("plain-topics-list").addEventListener("input", e => {
+      if (e.target?.id && e.target.matches("input[type=text]")) {
+        plainLinkDrafts[e.target.id] = e.target.value;
+      }
+    });
     setupImport();
     renderImportList();
     init();

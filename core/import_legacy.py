@@ -487,6 +487,9 @@ def apply_import(payload: dict[str, Any]) -> dict[str, Any]:
     applied["global_updated"] = sorted(set(applied["global_updated"]))
     applied["files_written"] = sorted(set(applied["files_written"]))
     applied["topics_upserted"] += sync_topic_sources_from_map_file()
+    from core.branch_map import sync_map_file_to_config
+    from core.channel_store import BRANCH_PLAIN
+    applied["plain_topics_upserted"] = sync_map_file_to_config(BRANCH_PLAIN)
     applied["channels_normalized"] = rewrite_channels_file()
     applied["plain_channels_normalized"] = rewrite_channels_file(BRANCH_PLAIN)
     invalidate_channels_cache()

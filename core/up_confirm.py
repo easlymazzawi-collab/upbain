@@ -54,6 +54,7 @@ async def offer_up_confirm(
     need_media: int,
     header_html: str,
     force: bool = False,
+    branch: str = "ads",
 ) -> bool:
     """Đủ bài → chờ /upngay, không up ngay. Trả True nếu đã offer (chặn run)."""
     if not require_up_confirm():
@@ -77,6 +78,7 @@ async def offer_up_confirm(
         have_media=have_media,
         need_media=need_media,
         next_schedule_at=next_ts,
+        branch=branch,
     )
 
     sched_note = ""

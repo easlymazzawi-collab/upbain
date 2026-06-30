@@ -3,6 +3,8 @@
 import logging
 from typing import Any, Callable, Awaitable
 
+from core.channel_store import BRANCH_PLAIN
+from core.branch_map import find_topic_entry, sources_key
 from core.config_store import get_topic_source, load_auto_config, save_auto_config, topic_key, upsert_topic_source
 from core.inventory import update_after_batch
 from core.link_parser import escape_html, msg_link
@@ -41,20 +43,32 @@ async def run_topic_batch(
     channels_no_ads_filter: Callable[[list, list[str]], list] | None = None,
     force_run: bool = False,
     check_only: bool = False,
+    branch: str = "ads",
 ) -> bool:
     """
     Full auto pipeline for one mapped source topic.
-    build_and_forward(slot_like_dict) — injected from main tool.
+    branch: ads | plain (Up bài — không xen ads, pool plain_channels.json)
     """
     cfg = load_auto_config()
     g = cfg.get("global", {})
-    tcfg = get_topic_source(src_chat_id, topic_id) or {}
+    sk = sources_key(branch)
+    tcfg = cfg.get(sk, {}).get(topic_key(src_chat_id, topic_id))
+    if not tcfg and topic_title:
+        _, tcfg = find_topic_entry(
+            branch=branch,
+            src_chat_id=src_chat_id,
+            topic_id=topic_id,
+            topic_title=topic_title,
+        )
+    tcfg = dict(tcfg or {})
     if not tcfg.get("enabled", True):
         await notify(f"⏸️ Topic '{topic_title}' tắt auto trên web.")
         return False
 
     tcfg.setdefault("topic_title", topic_title)
-    upsert_topic_source(src_chat_id, topic_id, tcfg)
+    upsert_topic_source(src_chat_id, topic_id, tcfg, branch=branch)
+
+    branch_label = "Up bài" if branch == BRANCH_PLAIN else "Ads"
 
     cursor_msg = tcfg.get("start_msg_id") or tcfg.get("cursor_msg_id")
     start_bits = []
@@ -65,7 +79,7 @@ async def run_topic_batch(
 
     await _notify_html(
         notify,
-        f"▶️ Bắt đầu\n{_topic_header(topic_title, src_chat_id, topic_id)}"
+        f"▶️ Bắt đầu [{branch_label}]\n{_topic_header(topic_title, src_chat_id, topic_id)}"
         + (f"\n{' · '.join(start_bits)}" if start_bits else ""),
     )
 
@@ -145,6 +159,7 @@ async def run_topic_batch(
             have_media=n_media if not post_lim else n_posts,
             need_media=need_count,
             header_html=_topic_header(topic_title, src_chat_id, topic_id),
+            branch=branch,
         )
         if offered:
             return False
@@ -170,7 +185,9 @@ async def run_topic_batch(
 
     no_ads_cmds = set(x.lower() for x in tcfg.get("channels_no_ads", []))
     channels = resolve_channels_by_cmd(picked)
-    if channels_no_ads_filter and picked.lower() in no_ads_cmds:
+    if branch == BRANCH_PLAIN:
+        use_ads = False
+    elif channels_no_ads_filter and picked.lower() in no_ads_cmds:
         use_ads = False
     else:
         use_ads = picked.lower() not in no_ads_cmds
@@ -243,7 +260,7 @@ async def run_topic_batch(
             upsert_topic_source(src_chat_id, topic_id, {
                 "cursor_msg_id": next_pin_id,
                 "pinned_msg_id": next_pin_id,
-            })
+            }, branch=branch)
         except Exception as e:
             log.warning("advance pin: %s", e)
             await notify(f"⚠️ Không ghim bài tiếp: {e}")

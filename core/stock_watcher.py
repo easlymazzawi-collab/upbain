@@ -66,10 +66,17 @@ async def stock_poll_loop(run_topic: RunTopicFn) -> None:
                 waiting = get_runtime().get("waiting_topics") or {}
                 if waiting:
                     cfg = load_auto_config()
-                    by_key = {
-                        topic_key(t.get("src_chat_id", 0), t.get("topic_id", 0)): t
-                        for t in cfg.get("topic_sources", {}).values()
-                    }
+                    by_key = {}
+                    from core.channel_store import BRANCH_ADS, BRANCH_PLAIN
+                    for branch, sk in (
+                        (BRANCH_ADS, "topic_sources"),
+                        (BRANCH_PLAIN, "plain_topic_sources"),
+                    ):
+                        for t in cfg.get(sk, {}).values():
+                            k = topic_key(t.get("src_chat_id", 0), t.get("topic_id") or 0)
+                            entry = dict(t)
+                            entry["_branch"] = branch
+                            by_key[k] = entry
                     all_task = cfg.get("all_task") or {}
                     plain_task = cfg.get("plain_task") or {}
                     if (
@@ -101,10 +108,11 @@ async def stock_poll_loop(run_topic: RunTopicFn) -> None:
                         if tid is None:
                             tid = 0
                         try:
+                            br = t.get("_branch", "ads")
                             if t.get("_is_all"):
                                 await run_topic("all_task", sid, tid, title, check_only=True)
                             else:
-                                await run_topic("topic", sid, tid, title, check_only=True)
+                                await run_topic("topic", sid, tid, title, check_only=True, branch=br)
                         except Exception as e:
                             log.warning("stock poll %s: %s", key, e)
                         await asyncio.sleep(2)

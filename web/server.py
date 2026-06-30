@@ -19,6 +19,15 @@ from core.config_store import (
 )
 from core.import_legacy import analyze_uploads, apply_import, import_from_workspace, scan_workspace, sync_topic_sources_from_map_file
 from core.all_config import merge_all_task, merge_plain_task
+from core.branch_map import (
+    apply_start_link_flexible as branch_apply_start_link,
+    delete_topic_entry as branch_delete_topic,
+    list_topic_entries,
+    rebuild_map_file,
+    sync_map_file_to_config,
+    update_topic_mapping_cmd as branch_update_mapping,
+    upsert_topic_mapping as branch_upsert_mapping,
+)
 from core.map_config import (
     apply_start_link_flexible,
     apply_start_link_to_topic,
@@ -217,6 +226,9 @@ def _repair_imported_data(cfg: dict) -> dict:
     if not (cfg.get("topic_sources") or {}) and os.path.isfile("topic_map.txt"):
         sync_topic_sources_from_map_file()
         cfg = load_auto_config()
+    if not (cfg.get("plain_topic_sources") or {}) and os.path.isfile("plain_topic_map.txt"):
+        sync_map_file_to_config(BRANCH_PLAIN)
+        cfg = load_auto_config()
     return cfg
 
 
@@ -265,6 +277,7 @@ def _snapshot() -> dict[str, Any]:
             "folder_count": len(folders),
             "plain_folder_count": len(plain_folders),
             "topic_count": len(cfg.get("topic_sources") or {}),
+            "plain_topic_count": len(cfg.get("plain_topic_sources") or {}),
             "userbot_ready": api_ready(),
             "system_armed": system_armed(),
             "pending_actions": len(list_pending_actions()),
@@ -573,6 +586,108 @@ async def delete_topic(
     return {"ok": True}
 
 
+# ── Plain branch topic map (Up bài — song song nhánh ads) ──
+
+@app.get("/api/plain/topics")
+async def api_plain_topics(_=Depends(_auth)):
+    return list_topic_entries(BRANCH_PLAIN)
+
+
+@app.post("/api/plain/topics/map")
+async def add_plain_topic_map(body: TopicMapAddIn, _=Depends(_auth)):
+    try:
+        entry = branch_upsert_mapping(
+            branch=BRANCH_PLAIN,
+            topic_title=body.topic_title,
+            channel_cmd=body.channel_cmd,
+            post_count=body.post_count,
+            media_count=body.media_count,
+            src_chat_id=body.src_chat_id,
+            topic_id=body.topic_id,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    append_log("info", f"[Up bài] map {body.topic_title} → /{body.channel_cmd.lstrip('/')}")
+    return {"ok": True, "entry": entry, "message": f"✓ Up bài: {body.topic_title} → /{body.channel_cmd.lstrip('/')}"}
+
+
+@app.patch("/api/plain/topics/{src_chat_id}/{topic_id}/mapping")
+async def patch_plain_topic_mapping(
+    src_chat_id: int, topic_id: int, body: TopicMapCmdIn, _=Depends(_auth),
+):
+    try:
+        entry = branch_update_mapping(
+            branch=BRANCH_PLAIN,
+            src_chat_id=src_chat_id,
+            topic_id=topic_id,
+            topic_title=body.topic_title,
+            old_cmd=body.old_cmd,
+            new_cmd=body.new_cmd,
+            post_count=body.post_count,
+            media_count=body.media_count,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return entry
+
+
+@app.patch("/api/plain/topics/{src_chat_id}/{topic_id}/map-limits")
+async def patch_plain_topic_map_limits(
+    src_chat_id: int, topic_id: int, body: TopicMapLimitsIn, _=Depends(_auth),
+):
+    from core.map_limits import normalize_post_limits, normalize_media_limits
+    from core.branch_map import sources_key
+
+    cfg = load_auto_config()
+    key = topic_key(src_chat_id, topic_id)
+    sk = sources_key(BRANCH_PLAIN)
+    entry = cfg.get(sk, {}).get(key)
+    if not entry:
+        raise HTTPException(404, "Không tìm thấy topic Up bài")
+    entry = dict(entry)
+    entry["map_post_limits"] = normalize_post_limits(body.map_post_limits)
+    entry["map_media_limits"] = normalize_media_limits(body.map_media_limits)
+    cfg[sk][key] = entry
+    save_auto_config(cfg)
+    rebuild_map_file(BRANCH_PLAIN)
+    return entry
+
+
+@app.post("/api/plain/topics/start-link")
+async def post_plain_topic_start_link(body: TopicStartLinkIn, _=Depends(_auth)):
+    try:
+        entry = branch_apply_start_link(
+            body.link,
+            branch=BRANCH_PLAIN,
+            src_chat_id=body.src_chat_id,
+            topic_id=body.topic_id,
+            topic_title=body.topic_title or None,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    append_log("info", f"[Up bài] link {entry.get('topic_title')} → msg {entry.get('start_msg_id')}")
+    return entry
+
+
+@app.delete("/api/plain/topics/{src_chat_id}/{topic_id}")
+async def delete_plain_topic(
+    src_chat_id: int,
+    topic_id: int,
+    topic_title: str | None = None,
+    _=Depends(_auth),
+):
+    ok = branch_delete_topic(
+        branch=BRANCH_PLAIN,
+        src_chat_id=src_chat_id,
+        topic_id=topic_id,
+        topic_title=topic_title or "",
+    )
+    if not ok:
+        raise HTTPException(404, "Không tìm thấy topic Up bài")
+    append_log("info", f"[Up bài] xóa map {topic_title or f'{src_chat_id}:{topic_id}'}")
+    return {"ok": True}
+
+
 @app.get("/api/all-task")
 async def get_all_task(_=Depends(_auth)):
     return load_auto_config().get("all_task", {})
@@ -688,8 +803,9 @@ async def get_plain_topic_map(_=Depends(_auth)):
 @app.patch("/api/plain/topic-map")
 async def patch_plain_topic_map(body: PlainTopicMapIn, _=Depends(_auth)):
     save_topic_map_text(body.content, BRANCH_PLAIN)
-    append_log("info", "Lưu plain_topic_map.txt")
-    return {"ok": True, "content": body.content}
+    n = sync_map_file_to_config(BRANCH_PLAIN)
+    append_log("info", f"Lưu plain_topic_map.txt — {n} mapping")
+    return {"ok": True, "content": body.content, "synced": n}
 
 
 @app.post("/api/trigger/{src_chat_id}/{topic_id}")
@@ -749,9 +865,21 @@ async def import_resync(_=Depends(_auth)):
     n_ch = rewrite_channels_file(BRANCH_ADS)
     n_plain = rewrite_channels_file(BRANCH_PLAIN)
     n_topics = sync_topic_sources_from_map_file()
-    msg = f"Đồng bộ lại: {n_ch} kênh ads, {n_plain} kênh Up bài, {n_topics} topic map"
+    n_plain_topics = sync_map_file_to_config(BRANCH_PLAIN)
+    msg = (
+        f"Đồng bộ lại: {n_ch} kênh ads, {n_plain} kênh Up bài, "
+        f"{n_topics} map ads, {n_plain_topics} map Up bài"
+    )
     append_log("info", msg)
-    return {"ok": True, "channels": n_ch, "plain_channels": n_plain, "topics": n_topics, "message": msg, "snapshot": _snapshot()}
+    return {
+        "ok": True,
+        "channels": n_ch,
+        "plain_channels": n_plain,
+        "topics": n_topics,
+        "plain_topics": n_plain_topics,
+        "message": msg,
+        "snapshot": _snapshot(),
+    }
 
 
 @app.get("/api/import/scan")

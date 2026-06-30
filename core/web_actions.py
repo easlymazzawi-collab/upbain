@@ -43,6 +43,7 @@ def action_labels() -> dict[str, str]:
         "run_all_task": "Chạy /all task",
         "refresh_all_batch": "Quét batch /all",
         "run_topic": "Chạy 1 topic",
+        "run_plain_topic": "Chạy 1 topic Up bài",
         "scan_topic": "Scan kho topic",
         "sync_folders": "Sync folder → cập nhật kênh",
         "sync_plain_folders": "Sync folder nhánh Up bài",

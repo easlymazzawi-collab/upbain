@@ -2464,20 +2464,27 @@ async def _notify(text, parse_mode=None):
             pass
 
 
-async def _try_auto_source_topic(src_id, topic_id, topic_title, *, manual=False, force_run=False):
+async def _try_auto_source_topic(
+    src_id, topic_id, topic_title, *, manual=False, force_run=False, branch=BRANCH_ADS,
+):
+    from core.topic_routing import make_routing
+
     cfg = load_auto_config()
     g = cfg.get("global", {})
     if not g.get("auto_run_enabled", True):
         return
     if not manual and not system_armed():
         return
-    key_src = get_topic_source(src_id, topic_id)
-    if not key_src and not find_cmds_for_topic_title(topic_title, src_id):
+    key_src = get_topic_source(src_id, topic_id, branch=branch)
+    find_cmds_fn, resolve_fn = make_routing(branch)
+    if not key_src and not find_cmds_fn(topic_title, src_id):
         return
     if key_src and not key_src.get("enabled", True):
         return
 
     async def _after_regular():
+        if branch != BRANCH_ADS:
+            return
         cfg2 = load_auto_config()
         task = cfg2.get("all_task", {})
         plain = cfg2.get("plain_task") or {}
@@ -2497,30 +2504,35 @@ async def _try_auto_source_topic(src_id, topic_id, topic_title, *, manual=False,
         app, src_id, topic_id, topic_title or "",
         notify=_notify,
         build_and_forward=_source_build_and_forward,
-        find_cmds_for_topic=find_cmds_for_topic_title,
-        resolve_channels_by_cmd=resolve_channels_by_cmd,
+        find_cmds_for_topic=find_cmds_fn,
+        resolve_channels_by_cmd=resolve_fn,
         pick_next_rr=pick_next_rr,
         force_run=force_run or manual,
+        branch=branch,
     )
     asyncio.ensure_future(_after_regular())
 
 
-async def _stock_poll_run(kind, sid, tid, title, *, check_only=False, force_run=False):
+async def _stock_poll_run(kind, sid, tid, title, *, check_only=False, force_run=False, branch=BRANCH_ADS):
     """Kiểm tra kho — đủ bài thì offer /upngay, không up ngay."""
+    from core.topic_routing import make_routing
+
     if kind == "all_task":
         return await run_all_task(
             app, notify=_notify, forward_sequence_fn=_forward_seq_all_channels,
             build_and_forward_all=_all_build_and_forward,
             force_run=force_run, check_only=check_only,
         )
+    find_cmds_fn, resolve_fn = make_routing(branch)
     return await run_topic_batch(
         app, sid, tid, title or "",
         notify=_notify,
         build_and_forward=_source_build_and_forward,
-        find_cmds_for_topic=find_cmds_for_topic_title,
-        resolve_channels_by_cmd=resolve_channels_by_cmd,
+        find_cmds_for_topic=find_cmds_fn,
+        resolve_channels_by_cmd=resolve_fn,
         pick_next_rr=pick_next_rr,
         force_run=force_run, check_only=check_only,
+        branch=branch,
     )
 
 
@@ -2562,14 +2574,19 @@ async def cmd_upngay(text: str):
                     build_and_forward_all=_all_build_and_forward, force_run=True,
                 )
             else:
+                from core.topic_routing import make_routing
+
+                br = p.get("branch") or BRANCH_ADS
+                find_cmds_fn, resolve_fn = make_routing(br)
                 ok = await run_topic_batch(
                     app, sid, tid, title,
                     notify=_notify,
                     build_and_forward=_source_build_and_forward,
-                    find_cmds_for_topic=find_cmds_for_topic_title,
-                    resolve_channels_by_cmd=resolve_channels_by_cmd,
+                    find_cmds_for_topic=find_cmds_fn,
+                    resolve_channels_by_cmd=resolve_fn,
                     pick_next_rr=pick_next_rr,
                     force_run=True,
+                    branch=br,
                 )
             mark_run_done("ok" if ok else "skip")
         except Exception as e:
@@ -2583,20 +2600,22 @@ async def _forward_seq_all_channels(ch_id, seq):
 
 async def _run_all_topics_only(*, force_run=False):
     cfg = load_auto_config()
-    topics = list(cfg.get("topic_sources", {}).values())
     ran = 0
-    for t in topics:
-        if not t.get("enabled", True):
-            continue
-        sid, tid = t.get("src_chat_id"), t.get("topic_id")
-        title = t.get("topic_title") or ""
-        if not sid:
-            continue
-        if tid is None:
-            tid = 0
-        mark_run_start(f"Topic {title or tid}")
-        await _try_auto_source_topic(sid, tid, title, manual=True, force_run=force_run)
-        ran += 1
+    for branch in (BRANCH_ADS, BRANCH_PLAIN):
+        sk = "topic_sources" if branch == BRANCH_ADS else "plain_topic_sources"
+        label = "Up bài" if branch == BRANCH_PLAIN else "Ads"
+        for t in cfg.get(sk, {}).values():
+            if not t.get("enabled", True):
+                continue
+            sid, tid = t.get("src_chat_id"), t.get("topic_id")
+            title = t.get("topic_title") or ""
+            if not sid:
+                continue
+            if tid is None:
+                tid = 0
+            mark_run_start(f"[{label}] Topic {title or tid}")
+            await _try_auto_source_topic(sid, tid, title, manual=True, force_run=force_run, branch=branch)
+            ran += 1
     return ran
 
 
@@ -2707,6 +2726,15 @@ async def _execute_web_action(action: dict):
             title = params.get("topic_title") or ""
             mark_run_start(f"Topic {title or tid}")
             await _try_auto_source_topic(sid, tid, title, manual=True, force_run=True)
+            mark_run_done("ok")
+        elif atype == "run_plain_topic":
+            sid = int(params["src_chat_id"])
+            tid = int(params["topic_id"])
+            title = params.get("topic_title") or ""
+            mark_run_start(f"Up bài {title or tid}")
+            await _try_auto_source_topic(
+                sid, tid, title, manual=True, force_run=True, branch=BRANCH_PLAIN,
+            )
             mark_run_done("ok")
         elif atype == "scan_topic":
             sid = int(params["src_chat_id"])

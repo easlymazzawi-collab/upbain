@@ -144,6 +144,7 @@ def set_pending_up(
     have_media: int,
     need_media: int,
     next_schedule_at: int = 0,
+    branch: str = "ads",
 ) -> None:
     with _lock:
         rt = _read()
@@ -156,6 +157,7 @@ def set_pending_up(
             "need_media": need_media,
             "notified_at": int(time.time()),
             "next_schedule_at": next_schedule_at,
+            "branch": branch,
         }
         wt = rt.get("waiting_topics") or {}
         wt.pop(key, None)
