@@ -442,12 +442,20 @@
           <div id="g-xep-wl-block"><label>@xepbaiwhite</label><input id="g-xep-wl" placeholder="sinh, real" /><p class="hint" style="margin:0.25rem 0 0">Kênh luôn hiện menu /done — kể cả khi @xepbai = off.</p></div>
         </div>
         <div id="g-auto-xep-block" class="row">
-          <div>
+          <div id="g-cpa-block">
             <label>Số content / 1 ads</label>
-            <input id="g-cpa" type="number" min="1" title="Mặc định khi @xepbai=off — tương đương /done1, /done2..." />
-            <p class="hint" style="margin:0.25rem 0 0">Tỉ lệ tự xếp: mỗi 1 ads xen bao nhiêu content (vd: 1 = /done1).</p>
+            <input id="g-cpa" type="number" min="1" title="Tương đương /done1, /done2..." />
+            <p class="hint" style="margin:0.25rem 0 0">Tỉ lệ /done khi <strong>Mode = normal</strong> (vd: 1 = /done1).</p>
           </div>
-          <div><label>Mode xếp</label><select id="g-mode"><option value="normal">normal</option><option value="xdone">xdone</option><option value="zdone">zdone</option></select></div>
+          <div>
+            <label>Mode xếp</label>
+            <select id="g-mode" onchange="syncXepSortUI()">
+              <option value="normal">normal — /doneN (tỉ lệ content/ads)</option>
+              <option value="xdone">xdone — ads xen đều giữa bài</option>
+              <option value="zdone">zdone — ads trước, content sau</option>
+            </select>
+            <p class="hint" id="g-mode-hint" style="margin:0.25rem 0 0">—</p>
+          </div>
         </div>
         <div class="row">
           <div><label>Cảnh báo kho ≤</label><input id="g-threshold" type="number" /></div>
@@ -1655,6 +1663,22 @@
       const autoBlock = $("g-auto-xep-block");
       if (autoBlock) {
         autoBlock.style.display = manual ? "none" : "";
+      }
+      if (!manual) syncXepSortUI();
+    }
+
+    function syncXepSortUI() {
+      const sortMode = ($("g-mode")?.value || "normal").toLowerCase();
+      const cpaBlock = $("g-cpa-block");
+      const hint = $("g-mode-hint");
+      const useCpa = sortMode === "normal";
+      if (cpaBlock) cpaBlock.style.display = useCpa ? "" : "none";
+      if (hint) {
+        hint.textContent = useCpa
+          ? "Đang dùng tỉ lệ /done — chỉnh ô Số content/1 ads bên trái."
+          : (sortMode === "xdone"
+            ? "xdone: không dùng tỉ lệ /done — ads xen giữa các bài."
+            : "zdone: không dùng tỉ lệ /done — ads gom trước, content sau.");
       }
     }
 
