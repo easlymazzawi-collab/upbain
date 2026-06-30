@@ -8,8 +8,10 @@ from typing import Any
 from core.channel_store import BRANCH_ADS, BRANCH_PLAIN, topic_map_file
 from core.config_store import load_auto_config, save_auto_config, topic_key
 from core.map_limits import (
+    apply_cmd_limit,
     format_map_comment,
     format_map_rhs,
+    normalize_exclusive_limits,
     normalize_media_limits,
     normalize_post_limits,
 )
@@ -169,15 +171,10 @@ def upsert_topic_mapping(
         cmds.append(cmd)
     entry["mapped_cmds"] = cmds
 
-    limits = normalize_post_limits(entry.get("map_post_limits"))
     if post_count is not None and int(post_count) > 0:
-        limits[cmd.lower()] = int(post_count)
-    entry["map_post_limits"] = limits
-
-    mlimits = normalize_media_limits(entry.get("map_media_limits"))
-    if media_count is not None and int(media_count) > 0:
-        mlimits[cmd.lower()] = int(media_count)
-    entry["map_media_limits"] = mlimits
+        apply_cmd_limit(entry, cmd, post_count=int(post_count))
+    elif media_count is not None and int(media_count) > 0:
+        apply_cmd_limit(entry, cmd, media_count=int(media_count))
 
     cfg = load_auto_config()
     cfg.setdefault(sources_key(branch), {})[key] = entry

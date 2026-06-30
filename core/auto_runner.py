@@ -10,7 +10,7 @@ from core.inventory import update_after_batch
 from core.link_parser import escape_html, msg_link
 from core.map_config import clear_start_link, resolve_xep_settings
 from core.pin_manager import advance_topic_pin
-from core.map_limits import media_limit_for_cmd, post_limit_for_cmd, trim_posts, trim_posts_by_media
+from core.map_limits import media_limit_for_cmd, post_limit_for_cmd, trim_posts, trim_posts_by_media, limits_for_cmd
 from core.source_collector import collect_batch_from_topic, find_next_post_id, posts_to_content_refs
 from core.stock_watcher import mark_ready, mark_waiting, notify_wait, require_full_batch
 from core.up_confirm import expire_pending_near_schedule, is_pending, offer_up_confirm, require_up_confirm
@@ -96,8 +96,9 @@ async def run_topic_batch(
     media_lim: int | None = None
     if mapped_cmds:
         picked = pick_next_rr(topic_title, mapped_cmds) if len(mapped_cmds) > 1 else mapped_cmds[0]
-        post_lim = post_limit_for_cmd(tcfg, picked, topic_title=topic_title, src_id=src_chat_id)
-        media_lim = media_limit_for_cmd(tcfg, picked, topic_title=topic_title, src_id=src_chat_id)
+        post_lim, media_lim = limits_for_cmd(
+            tcfg, picked, topic_title=topic_title, src_id=src_chat_id,
+        )
 
     tkey = topic_key(src_chat_id, topic_id)
 
@@ -177,8 +178,10 @@ async def run_topic_batch(
         )
         return False
 
-    posts = trim_posts(posts, post_lim)
-    posts = trim_posts_by_media(posts, media_lim)
+    if post_lim:
+        posts = trim_posts(posts, post_lim)
+    elif media_lim:
+        posts = trim_posts_by_media(posts, media_lim)
     n_posts = len(posts)
     n_media = sum(p.media_count for p in posts)
     content_refs = posts_to_content_refs(posts, src_chat_id)

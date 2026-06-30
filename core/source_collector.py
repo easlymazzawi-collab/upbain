@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.inventory import check_low_stock, update_after_scan
-from core.map_limits import max_media_limit, max_post_limit
+from core.map_limits import collect_target_limits
 from core.pin_manager import get_pinned_message_id
 from core.topic_parser import resolve_batch_params
 
@@ -225,10 +225,11 @@ async def collect_batch_from_topic(
         )
 
     params = resolve_batch_params(pinned_text, topic_cfg, global_cfg)
-    target_posts = max_post_limit(topic_cfg) or params.get("target_posts")
-    target_media = int(
-        max_media_limit(topic_cfg) or target_media_override or params["target_media"]
+    target_posts, target_media = collect_target_limits(
+        topic_cfg,
+        int(target_media_override or params["target_media"]),
     )
+    count_by_posts = target_posts is not None
     max_posts = int(topic_cfg.get("max_posts") or 100)
 
     posts: list[AtomicPost] = []
@@ -253,10 +254,10 @@ async def collect_batch_from_topic(
             if len(posts) >= max_posts:
                 next_pin = msg.id
                 break
-        elif target_posts and len(posts) >= int(target_posts):
+        elif count_by_posts and len(posts) >= int(target_posts):
             next_pin = msg.id
             break
-        elif total_media >= target_media:
+        elif not count_by_posts and total_media >= int(target_media):
             next_pin = msg.id
             break
 
@@ -270,7 +271,7 @@ async def collect_batch_from_topic(
         total_media += mc
         last_taken_id = msg.id
 
-        if not all_task_mode and total_media >= target_media:
+        if not all_task_mode and not count_by_posts and total_media >= int(target_media):
             next_pin = None
             break
 
@@ -281,10 +282,10 @@ async def collect_batch_from_topic(
 
     if all_task_mode:
         sufficient = len(posts) > 0
-    elif target_posts:
+    elif count_by_posts:
         sufficient = len(posts) >= int(target_posts)
     else:
-        sufficient = total_media >= target_media
+        sufficient = total_media >= int(target_media)
     if sufficient:
         rem_posts, rem_media = await _count_remaining(
             client, src_chat_id, tid, next_pin or (last_taken_id or cursor_id),
@@ -301,7 +302,8 @@ async def collect_batch_from_topic(
         update_after_scan(src_chat_id, tid, rem_posts, rem_media, scan_cursor, pinned_id)
 
     warn = None if all_task_mode else check_low_stock(
-        src_chat_id, tid, target_media if sufficient else total_media,
+        src_chat_id, tid,
+        (int(target_posts) if count_by_posts else int(target_media)) if sufficient else total_media,
     )
 
     if not posts:

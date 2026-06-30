@@ -507,12 +507,9 @@ async def post_topic(body: TopicSourceIn, _=Depends(_auth)):
 async def patch_topic_map_limits(
     src_chat_id: int, topic_id: int, body: TopicMapLimitsIn, _=Depends(_auth),
 ):
-    from core.map_limits import normalize_post_limits, normalize_media_limits
-    patch: dict = {}
-    if body.map_post_limits is not None:
-        patch["map_post_limits"] = normalize_post_limits(body.map_post_limits)
-    if body.map_media_limits is not None:
-        patch["map_media_limits"] = normalize_media_limits(body.map_media_limits)
+    from core.map_limits import normalize_exclusive_limits
+    posts, media = normalize_exclusive_limits(body.map_post_limits, body.map_media_limits)
+    patch: dict = {"map_post_limits": posts, "map_media_limits": media}
     entry = upsert_topic_source(src_chat_id, topic_id, patch)
     sync_topic_to_map_file(entry)
     title = entry.get("topic_title") or f"{src_chat_id}:{topic_id}"
@@ -635,7 +632,7 @@ async def patch_plain_topic_mapping(
 async def patch_plain_topic_map_limits(
     src_chat_id: int, topic_id: int, body: TopicMapLimitsIn, _=Depends(_auth),
 ):
-    from core.map_limits import normalize_post_limits, normalize_media_limits
+    from core.map_limits import normalize_exclusive_limits
     from core.branch_map import sources_key
 
     cfg = load_auto_config()
@@ -645,8 +642,9 @@ async def patch_plain_topic_map_limits(
     if not entry:
         raise HTTPException(404, "Không tìm thấy topic Up bài")
     entry = dict(entry)
-    entry["map_post_limits"] = normalize_post_limits(body.map_post_limits)
-    entry["map_media_limits"] = normalize_media_limits(body.map_media_limits)
+    posts, media = normalize_exclusive_limits(body.map_post_limits, body.map_media_limits)
+    entry["map_post_limits"] = posts
+    entry["map_media_limits"] = media
     cfg[sk][key] = entry
     save_auto_config(cfg)
     rebuild_map_file(BRANCH_PLAIN)

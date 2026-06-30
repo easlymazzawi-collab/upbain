@@ -21,7 +21,7 @@ from core.config_store import (
     upsert_topic_source,
 )
 from core.settings import CHANNELS_FILE
-from core.map_limits import parse_map_line, normalize_post_limits, normalize_media_limits
+from core.map_limits import parse_map_line, normalize_post_limits, normalize_media_limits, normalize_exclusive_limits
 from core.channel_store import BRANCH_PLAIN, invalidate_channels_cache, rewrite_channels_file
 
 ROOT_FILES = {
@@ -182,11 +182,15 @@ def merge_topic_cmds(existing: dict, incoming: dict) -> dict:
     existing["mapped_cmds"] = cmds
     limits = normalize_post_limits(existing.get("map_post_limits"))
     limits.update(normalize_post_limits(incoming.get("map_post_limits")))
-    if limits:
-        existing["map_post_limits"] = limits
-    mlimits = normalize_media_limits(incoming.get("map_media_limits"))
-    if mlimits:
-        existing.setdefault("map_media_limits", {}).update(mlimits)
+    mlimits = normalize_media_limits(existing.get("map_media_limits"))
+    mlimits.update(normalize_media_limits(incoming.get("map_media_limits")))
+    posts, media = normalize_exclusive_limits(limits, mlimits)
+    if posts:
+        existing["map_post_limits"] = posts
+    if media:
+        existing["map_media_limits"] = media
+    elif "map_media_limits" in existing and not media:
+        existing["map_media_limits"] = {}
     for k, v in incoming.items():
         if k in ("mapped_cmds", "map_post_limits", "map_media_limits"):
             continue
