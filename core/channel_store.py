@@ -63,6 +63,47 @@ def invalidate_channels_cache(branch: str | None = None) -> None:
             _channels_cache[k] = None
 
 
+def normalize_channel_list(data: Any) -> list[dict]:
+    """Chuẩn hóa channels.json cũ — list, dict id→object, hoặc {channels: [...]}."""
+    if not data:
+        return []
+    if isinstance(data, list):
+        out: list[dict] = []
+        for item in data:
+            if isinstance(item, dict) and item.get("id") is not None:
+                out.append({
+                    "id": item["id"],
+                    "title": item.get("title") or str(item["id"]),
+                    "username": item.get("username") or "",
+                    "alias": item.get("alias") or "",
+                })
+            elif isinstance(item, (str, int)):
+                try:
+                    cid = int(item)
+                    out.append({"id": cid, "title": str(cid), "username": "", "alias": ""})
+                except (TypeError, ValueError):
+                    pass
+        return out
+    if isinstance(data, dict):
+        if isinstance(data.get("channels"), list):
+            return normalize_channel_list(data["channels"])
+        out = []
+        for k, v in data.items():
+            if isinstance(v, dict):
+                ch = dict(v)
+                if ch.get("id") is None:
+                    try:
+                        ch["id"] = int(k)
+                    except (TypeError, ValueError):
+                        continue
+                ch.setdefault("title", str(ch["id"]))
+                ch.setdefault("username", "")
+                ch.setdefault("alias", "")
+                out.append(ch)
+        return out
+    return []
+
+
 def load_channels(branch: str = BRANCH_ADS) -> list[dict]:
     b = _branch(branch)
     cached = _channels_cache.get(b)
@@ -72,17 +113,29 @@ def load_channels(branch: str = BRANCH_ADS) -> list[dict]:
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            _channels_cache[b] = data
-            return list(data)
+        channels = normalize_channel_list(data)
+        _channels_cache[b] = channels
+        return list(channels)
     _channels_cache[b] = []
     return []
 
 
 def save_channels(channels: list[dict], branch: str = BRANCH_ADS) -> None:
     b = _branch(branch)
-    _channels_cache[b] = list(channels)
+    normalized = normalize_channel_list(channels)
+    _channels_cache[b] = normalized
     with open(channels_file(b), "w", encoding="utf-8") as f:
-        json.dump(channels, f, ensure_ascii=False, indent=2)
+        json.dump(normalized, f, ensure_ascii=False, indent=2)
+
+
+def rewrite_channels_file(branch: str = BRANCH_ADS) -> int:
+    """Đọc lại file kênh, chuẩn hóa format list — trả số kênh."""
+    invalidate_channels_cache(branch)
+    channels = load_channels(branch)
+    if not channels:
+        return 0
+    save_channels(channels, branch)
+    return len(channels)
 
 
 def load_folders(branch: str = BRANCH_ADS) -> list[dict]:

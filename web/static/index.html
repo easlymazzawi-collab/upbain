@@ -361,6 +361,7 @@
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem">
           <button class="primary" onclick="scanDiskImport()">📁 Quét folder tool</button>
           <button class="run" onclick="applyDiskImport()">Import từ folder tool</button>
+          <button class="secondary" onclick="resyncImport()">🔄 Đồng bộ lại kênh + map</button>
         </div>
         <div class="dropzone" id="dropzone" style="border:2px dashed var(--border);border-radius:12px;padding:2rem;text-align:center;cursor:pointer">
           <p style="margin:0">📂 Kéo thả vào đây hoặc <strong>bấm chọn file</strong></p>
@@ -447,7 +448,27 @@
     let es = null;
     let importQueue = [];
 
-    function authHeadersOnly() {
+    function escHtml(s) {
+      return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function snapChannels(snap) {
+      const ch = snap.channels;
+      if (Array.isArray(ch) && ch.length && typeof ch[0] === "object" && ch[0].id != null) return ch;
+      if (Array.isArray(channelCache) && channelCache.length && typeof channelCache[0] === "object") return channelCache;
+      return Array.isArray(ch) ? ch : (channelCache || []);
+    }
+
+    function snapPlainChannels(snap) {
+      const ch = snap.plain_channels;
+      if (Array.isArray(ch) && ch.length && typeof ch[0] === "object" && ch[0].id != null) return ch;
+      if (Array.isArray(plainChannelCache) && plainChannelCache.length) return plainChannelCache;
+      return Array.isArray(ch) ? ch : (plainChannelCache || []);
+    }
       const t = $("token").value.trim();
       const h = {};
       if (t) h["X-Token"] = t;
@@ -525,6 +546,16 @@
         showDiskHint(res.workspace, res.found_files, res.preview);
       } catch (e) {
         toast("Lỗi quét folder: " + e.message);
+      }
+    }
+
+    async function resyncImport() {
+      try {
+        const res = await api("/import/resync", { method: "POST" });
+        if (res.snapshot) applySnapshot(res.snapshot);
+        toast(res.message || "Đã đồng bộ lại");
+      } catch (e) {
+        toast("Lỗi đồng bộ: " + e.message);
       }
     }
 
@@ -754,7 +785,7 @@
         return `
         <div class="topic-row">
           <div class="topic-info" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
-            <strong>${name}</strong>
+            <strong>${escHtml(name)}</strong>
             <span>→</span>
             <input class="map-cmd-in" style="width:100px;margin:0" value="${primaryCmd}"
               data-src="${t.src_chat_id || 0}" data-tid="${t.topic_id || 0}" data-title="${safeTitle}"
@@ -936,14 +967,19 @@
     }
 
     function renderAliasList(containerId, channels, branch) {
-      $(containerId).innerHTML = channels?.length
-        ? channels.map((c, i) => `
+      const list = Array.isArray(channels) ? channels.filter(c => c && c.id != null) : [];
+      $(containerId).innerHTML = list.length
+        ? list.map((c, i) => `
         <div class="ch-item">
-          <span class="ch-main">${i + 1}. ${c.title} <span class="badge">${c.id}</span></span>
-          <input class="alias-in" type="text" placeholder="alias" value="${(c.alias || "").replace(/"/g, "&quot;")}"
-            onchange="saveAlias('${branch}', ${c.id}, this.value)" />
+          <span class="ch-main">${i + 1}. ${escHtml(c.title || c.id)} <span class="badge">${escHtml(c.id)}</span></span>
+          <input class="alias-in" type="text" placeholder="alias" value="${escHtml(c.alias || "")}"
+            data-branch="${branch}" data-id="${escHtml(c.id)}" onchange="saveAliasEl(this)" />
         </div>`).join("")
-        : "<p>Chưa có kênh — thêm folder hoặc sync</p>";
+        : "<p>Chưa có kênh — thêm folder hoặc sync (tab Import → Đồng bộ lại)</p>";
+    }
+
+    async function saveAliasEl(el) {
+      await saveAlias(el.dataset.branch, +el.dataset.id, el.value);
     }
 
     async function saveAlias(branch, channelId, alias) {
@@ -1057,14 +1093,15 @@
     }
 
     function renderChannelPicker(containerId, cssClass, channels, selectedIds, onChangeFn) {
+      const list = Array.isArray(channels) ? channels.filter(c => c && c.id != null) : [];
       const sel = new Set((selectedIds || []).map(String));
-      $(containerId).innerHTML = channels?.length
-        ? channels.map((c, i) => `
+      $(containerId).innerHTML = list.length
+        ? list.map((c, i) => `
         <label class="ch-item">
-          <input type="checkbox" class="${cssClass}" value="${c.id}" ${sel.has(String(c.id)) ? "checked" : ""} onchange="${onChangeFn}" />
-          <span class="ch-main">${i + 1}. ${c.title}${c.alias ? ` · <em>${c.alias}</em>` : ""} <span class="badge">${c.id}</span></span>
+          <input type="checkbox" class="${cssClass}" value="${escHtml(c.id)}" ${sel.has(String(c.id)) ? "checked" : ""} onchange="${onChangeFn}" />
+          <span class="ch-main">${i + 1}. ${escHtml(c.title || c.id)}${c.alias ? ` · <em>${escHtml(c.alias)}</em>` : ""} <span class="badge">${escHtml(c.id)}</span></span>
         </label>`).join("")
-        : "<p>Chưa có kênh — thêm folder & sync (tab Up bài hoặc Kênh)</p>";
+        : "<p>Chưa có kênh — tab <strong>Import</strong> → Đồng bộ lại, hoặc sync folder</p>";
     }
 
     function syncAllSourceLink(task) {
@@ -1074,6 +1111,7 @@
     }
 
     function renderAllTask(task, channels) {
+      const list = Array.isArray(channels) ? channels.filter(c => c && c.id != null) : [];
       $("all-enabled").checked = !!task.enabled;
       $("all-status").innerHTML = task.enabled
         ? `<span class="badge ok">ON</span>` : `<span class="badge warn">OFF</span>`;
@@ -1085,8 +1123,8 @@
         : (task.start_link
           ? "⚠ Link chưa hợp lệ — thử -100... hoặc link t.me"
           : "Chưa có nguồn — nhập chat ID (-100...) hoặc link rồi Lưu");
-      $("all-ch-count").textContent = (task.selected_channel_ids || []).length;
-      renderChannelPicker("all-channels", "all-ch", channels, task.selected_channel_ids, "debounceAllChannels()");
+      $("all-ch-count").textContent = list.length ? String(list.length) : (task.selected_channel_ids || []).length;
+      renderChannelPicker("all-channels", "all-ch", list, task.selected_channel_ids, "debounceAllChannels()");
     }
 
     function tmePostLink(chatId, topicId, msgId) {
@@ -1270,20 +1308,28 @@
     function removeTime(i) { scheduleTimes.splice(i, 1); renderTimeChips(); }
 
     function applySnapshot(snap) {
-      renderMeta(snap.meta);
-      renderRuntime(snap.runtime);
-      renderInventory(snap.inventory);
-      renderTopics(Object.values(snap.config.topic_sources || {}));
-      renderAllBatchPreview(snap.runtime?.all_batch_preview, snap.config.all_task || {});
-      renderChannels(snap.channels || channelCache, snap.config.all_task || {});
-      plainChannelCache = snap.plain_channels || plainChannelCache;
-      renderPlainTask(snap.config.plain_task || {}, snap.plain_channels || plainChannelCache);
-      renderPlainPool(snap.plain_channels || plainChannelCache, snap.plain_folders || []);
-      syncPlainTopicMap(snap.plain_topic_map || "");
-      renderChannelsPage(snap.channels || channelCache, snap.folders || []);
-      renderGlobal(snap.config.global || {});
-      if (snap.runtime && snap.runtime.next_run_at) {
-        $("sch-next-hint").textContent = `Lần chạy tiếp: ${fmtTs(snap.runtime.next_run_at)}`;
+      try {
+        const channels = snapChannels(snap);
+        const plainCh = snapPlainChannels(snap);
+        channelCache = channels;
+        plainChannelCache = plainCh;
+        renderMeta(snap.meta);
+        renderRuntime(snap.runtime);
+        renderInventory(snap.inventory);
+        renderTopics(Object.values(snap.config?.topic_sources || {}));
+        renderAllBatchPreview(snap.runtime?.all_batch_preview, snap.config?.all_task || {});
+        renderChannels(channels, snap.config?.all_task || {});
+        renderPlainTask(snap.config?.plain_task || {}, plainCh);
+        renderPlainPool(plainCh, snap.plain_folders || []);
+        syncPlainTopicMap(snap.plain_topic_map || "");
+        renderChannelsPage(channels, snap.folders || []);
+        renderGlobal(snap.config?.global || {});
+        if (snap.runtime && snap.runtime.next_run_at) {
+          $("sch-next-hint").textContent = `Lần chạy tiếp: ${fmtTs(snap.runtime.next_run_at)}`;
+        }
+      } catch (e) {
+        console.error("applySnapshot", e);
+        toast("Lỗi hiển thị UI: " + (e.message || e));
       }
     }
 
@@ -1331,9 +1377,10 @@
       es.onmessage = ev => {
         try {
           const snap = JSON.parse(ev.data);
-          snap.channels = snap.channels || channelCache;
           applySnapshot(snap);
-        } catch (_) {}
+        } catch (e) {
+          console.error("SSE", e);
+        }
       };
       es.onerror = () => {
         $("live-label").textContent = "Mất kết nối — thử lại...";

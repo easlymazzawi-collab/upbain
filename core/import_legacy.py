@@ -22,6 +22,7 @@ from core.config_store import (
 )
 from core.settings import CHANNELS_FILE
 from core.map_limits import parse_map_line, normalize_post_limits, normalize_media_limits
+from core.channel_store import invalidate_channels_cache, rewrite_channels_file
 
 ROOT_FILES = {
     "channels.json": CHANNELS_FILE,
@@ -482,4 +483,43 @@ def apply_import(payload: dict[str, Any]) -> dict[str, Any]:
 
     applied["global_updated"] = sorted(set(applied["global_updated"]))
     applied["files_written"] = sorted(set(applied["files_written"]))
+    applied["topics_upserted"] += sync_topic_sources_from_map_file()
+    applied["channels_normalized"] = rewrite_channels_file()
+    invalidate_channels_cache()
     return applied
+
+
+def sync_topic_sources_from_map_file(path: str = "topic_map.txt") -> int:
+    """Đọc topic_map.txt trên disk → bổ sung topic_sources web (idempotent)."""
+    if not os.path.isfile(path):
+        return 0
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return 0
+    topics = parse_topic_map_text(text)
+    if not topics:
+        return 0
+    n = 0
+    for topic in topics:
+        sid = int(topic.get("src_chat_id") or 0)
+        tid = int(topic.get("topic_id") or 0)
+        if sid and tid:
+            upsert_topic_source(sid, tid, topic)
+            n += 1
+        elif sid and topic.get("topic_title"):
+            cfg = load_auto_config()
+            key = topic_key(sid, 0)
+            cur = cfg.get("topic_sources", {}).get(key, {})
+            cfg.setdefault("topic_sources", {})[key] = merge_topic_cmds(cur, topic)
+            save_auto_config(cfg)
+            n += 1
+        elif topic.get("topic_title"):
+            cfg = load_auto_config()
+            preview_key = f"title:{topic['topic_title'].lower()}"
+            cur = cfg.get("topic_sources", {}).get(preview_key, {})
+            cfg.setdefault("topic_sources", {})[preview_key] = merge_topic_cmds(cur, topic) if cur else topic
+            save_auto_config(cfg)
+            n += 1
+    return n

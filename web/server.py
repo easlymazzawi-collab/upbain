@@ -17,7 +17,7 @@ from core.config_store import (
     topic_key,
     upsert_topic_source,
 )
-from core.import_legacy import analyze_uploads, apply_import, import_from_workspace, scan_workspace
+from core.import_legacy import analyze_uploads, apply_import, import_from_workspace, scan_workspace, sync_topic_sources_from_map_file
 from core.all_config import merge_all_task, merge_plain_task
 from core.map_config import (
     apply_start_link_flexible,
@@ -40,6 +40,7 @@ from core.channel_store import (
     load_channels,
     load_folders,
     load_topic_map_text,
+    rewrite_channels_file,
     save_topic_map_text,
     set_channel_alias,
 )
@@ -209,8 +210,19 @@ class TelegramIn(BaseModel):
     notify_chat_id: int | None = None
 
 
+def _repair_imported_data(cfg: dict) -> dict:
+    """Sửa dữ liệu import: chuẩn hóa kênh + sync topic_map → web config."""
+    if not load_channels(BRANCH_ADS) and os.path.isfile("channels.json"):
+        rewrite_channels_file(BRANCH_ADS)
+    if not (cfg.get("topic_sources") or {}) and os.path.isfile("topic_map.txt"):
+        sync_topic_sources_from_map_file()
+        cfg = load_auto_config()
+    return cfg
+
+
 def _snapshot() -> dict[str, Any]:
     cfg = load_auto_config()
+    cfg = _repair_imported_data(cfg)
     sch = cfg.get("global", {}).get("schedule") or {}
     rt = get_runtime()
     next_ts = compute_next_run_ts(
@@ -721,6 +733,16 @@ async def _read_uploads(files: list[UploadFile]) -> list[tuple[str, bytes]]:
         if data:
             out.append((f.filename, data))
     return out
+
+
+@app.post("/api/import/resync")
+async def import_resync(_=Depends(_auth)):
+    """Đọc lại channels.json + topic_map.txt trên disk → đồng bộ web."""
+    n_ch = rewrite_channels_file(BRANCH_ADS)
+    n_topics = sync_topic_sources_from_map_file()
+    msg = f"Đồng bộ lại: {n_ch} kênh, {n_topics} topic map"
+    append_log("info", msg)
+    return {"ok": True, "channels": n_ch, "topics": n_topics, "message": msg, "snapshot": _snapshot()}
 
 
 @app.get("/api/import/scan")
