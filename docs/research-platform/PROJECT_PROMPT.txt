@@ -1,304 +1,387 @@
 ================================================================================
 PROMPT DỰ ÁN — UpBain Research Platform v2
-Phiên bản: product-first · tham chiếu 2 repo đúng (không copy cả dự án)
+Lộ trình: MÓNG → KHUNG → VỮNG (từng phase, không làm cả dự án một lần)
 ================================================================================
 
-!!! QUAN TRỌNG — ĐỌC TRƯỚC KHI CODE !!!
+CÁCH DÙNG PROMPT NÀY
+--------------------
+  - Mỗi lần giao AI CHỈ 1 PHASE (hoặc 1 bước trong phase).
+  - Phase sau CHỈ bắt đầu khi checklist phase trước PASS.
+  - Hai repo bên dưới chỉ tham chiếu ý tưởng — không copy cả dự án.
+  - Nhánh research-bot-platform KHÔNG phải repo mẫu — chỉ nơi implement.
 
-Hai repo dưới đây là NGUỒN THAM CHIẾU duy nhất để rút ưu điểm — KHÔNG phải
-“bản để copy sang nguyên xi”. AI phải hiểu spec sản phẩm trước, tự thiết kế
-module mới, chỉ mượn Ý TƯỞNG / PATTERN đã proven.
+  HAI REPO THAM CHIẾU:
+    UpBain  → cursor/web-bot-schedule-realtime-fe96
+              (userbot, web, flood, lịch, topic map)
+    Clender → cursor/fix-web-backup-access-2234
+              (membership, delivery fallback, backup, deep link)
 
-  HAI REPO THAM CHIẾU (ĐÚNG):
-
-  1) Clender
-     https://github.com/easlymazzawi-collab/clender
-     Branch: cursor/fix-web-backup-access-2234
-
-  2) UpBain — nhánh userbot + web auto (KHÔNG phải nhánh research-bot)
-     https://github.com/easlymazzawi-collab/upbain
-     Branch: cursor/web-bot-schedule-realtime-fe96
-
-  KHÔNG dùng nhánh cursor/research-bot-platform-fe96 làm “repo mẫu copy”.
-  Nhánh research-bot là nơi IMPLEMENT sản phẩm mới — có thể sai, refactor,
-  hoặc thay đổi — không phải nguồn sự thật để AI khác paste code.
-
-  CẤM:
-  - Copy nguyên file/folder từ 2 repo trên mà không phân tích
-  - Merge Clender + UpBain web-bot thành 1 khối lộn xộn
-  - Coi nhánh research-bot-platform là “code mẫu”
-  - Port Flask clender → FastAPI kiểu 1:1 không redesign
-  - Assume mọi thứ trong git cũ = spec cuối cùng
-
-  BẮT BUỘC:
-  1. Đọc spec sản phẩm (mục 3–7) trước khi mở repo
-  2. Thiết kế kiến trúc mới thống nhất một codebase
-  3. Chỉ mượn pattern khi bài toán trùng — viết lại code
-  4. Giải thích trong commit/PR: mượn ý gì, khác gì bản gốc
-
-================================================================================
-1. HAI REPO — CHỈ ÁP DỤNG ƯU ĐIỂM, KHÔNG COPY CẢ DỰ ÁN
-================================================================================
-
-1.1 UpBain · cursor/web-bot-schedule-realtime-fe96
---------------------------------------------------
-  ĐÂY LÀ gì:
-  Userbot Pyrogram auto-up kênh Telegram + web FastAPI real-time (SSE).
-  Đã fix flood, stage batch, lịch auto, topic map, /all task, pin/cursor…
-
-  Mượn ý (nếu phù hợp spec Research Platform):
-  - Pipeline userbot: collect batch → xếp sequence → forward kênh RR
-  - Web điều khiển: START/STOP, config topic, lịch hằng ngày, SSE log
-  - Giảm flood: serial forward, cache message, pipeline lock
-  - Auto stage qua Saved Messages
-  - /all chạy sau khi hết topic
-  - Cấu hình xepbai / mode content-ads
-  - Import dữ liệu cũ (.env, topic_map, channels…)
-
-  KHÔNG mang nguyên sang Research Platform:
-  - Toàn bộ dashboard v28 như “sản phẩm cuối” — Research Platform là lớp mới
-  - Logic pin nguồn nếu spec đã chuyển sang admin notify group
-  - Mọi file trong nhánh này coi là nền userbot — không paste cả repo
-
-1.2 Clender · cursor/fix-web-backup-access-2234
-------------------------------------------------
-  ĐÂY LÀ gì:
-  Bot chia sẻ media + deep link + force-join + backup ZIP + web ops.
-  KHÁC domain Research Platform (archive theo ngày, userbot, VIP 10 bot…).
-
-  Mượn ý (pattern kỹ thuật — implement lại):
-  - Membership gate: cache TTL, fail-open config sai, pending token
-  - Delivery robust: copy_messages → forward_messages → từng msg + FloodWait
-  - Deep link token số: t.me/bot?start=7754133249527383
-  - Backup: SQLite safe copy, ZIP rotate, upload topic Telegram, scheduler
-  - Web backup API: GET status / POST run / download
-
-  KHÔNG mang nguyên sang:
-  - Bot handlers clender (/share album lẻ, /panel, upload whitelist…)
-  - Web Flask + sidebar clender
-  - Schema media_albums / media_links (khác archive ngày)
-  - Forwarder Telethon clender
-
-1.3 Tóm tắt vai trò
--------------------
-  web-bot-schedule-realtime-fe96  →  nền userbot + web ops đã chạy ổn
-  fix-web-backup-access-2234      →  pattern bot UX, membership, backup, delivery
-  Research Platform mới           →  thiết kế + code thống nhất, chọn lọc 2 bên
-
-================================================================================
-2. SẢN PHẨM CẦN XÂY (SPEC — NGUỒN SỰ THẬT)
-================================================================================
-
-Tên: Research Platform (mở rộng trên nền UpBain userbot)
-
-Mục tiêu:
-  - Archive research theo ngày VN (timezone Asia/Ho_Chi_Minh)
-  - 1 userbot up kênh + tối đa 10 bot token delivery cho user
-  - Monetize: VIP, Telegram Stars, giftcode
-  - Share đua top, catalog/tìm bộ, ads alias có revoke
-  - Quản trị web + backup ZIP
-
-Thực thể:
-  - 1 userbot (Pyrogram) — kế thừa nền từ web-bot-schedule-realtime-fe96
-  - ≤10 bot (aiogram) — delivery end-user
-  - 1 SQLite + 1 web backend
-  - Forum: nguồn, admin, notify, membership
-
-Archive (A2 — bắt buộc):
-  - CHỈ lưu link + metadata trong DB (src_chat_id, src_msg_id, album_msg_ids, seq)
-  - KHÔNG forward media vào forum backup
-  - User xem: bot copy/forward từ forum nguồn lúc xem
-
-Ads (A1 — bắt buộc):
-  - Revoke alias → strip ads lần xem archive SAU
-  - KHÔNG xóa tin ads user đã nhận trong chat cũ
-
-Label ngày: 30-06-2026
-
-================================================================================
-3. KIẾN TRÚC 3 LỚP (thiết kế sản phẩm)
-================================================================================
-
-                    ┌─────────────────────────────┐
-                    │ Backend: Web + SQLite +     │
-                    │ Orchestrator + Queue        │
-                    └──────────────┬──────────────┘
-           ┌───────────────────────┼───────────────────────┐
-           ▼                       ▼                       ▼
-    L1 publish_channels     L2 archive_index        L3 bot_delivery
-    Userbot → kênh RR       Ghi link metadata       Bot → user
-    (từ web-bot nền)          (không forward backup)   (bot mới/multi)
-
-  ON/OFF từng lớc độc lập trên web.
-  Mặc định: kênh trước → bot sau.
-
-  Forum:
-    Nguồn     — topic map / bot (ads | plain)
-    Admin     — duyệt tên, ZIP backup, contribution
-    Notify    — thông báo lượt auto (thay/bổ sung pin nguồn)
-    Membership — force-join (pattern clender)
-
-================================================================================
-4. QUYẾT ĐỊNH ĐÃ CHỐT
-================================================================================
-
-  A1   Không xóa ads chat user; strip khi xem archive sau revoke
-  A2   Archive = link + metadata only
-  A3   Stars: theo ngày + theo bộ media
-  B4   10 nguồn = 10 bot token, queue tuần tự
-  B5   Web quản bot, ON/OFF lớp, restart đơn/all
-  B6   1 userbot, nhiều admin web
-  B7   Hot-swap token, shared DB
-  C9   1 bot = 1 topic/ngày (30-06-2026)
-  C10  Rollup 30 ngày: mục lục text, không xóa cũ
-  C12  1 lượt/ngày
-  D15  Gửi tuần tự, delay >=1s
-  D16  VIP + giftcode + Stars
-  D17  Forward policy; VIP share
-  E18  Đóng góp tên forward admin; spam ban 24h→36h
-  F23  Ads alias + recheck sau up
-  F24  Revoke = inactive, strip khi xem
-  F26  1 day nhiều kênh RR
-  H34  1 user = 1 click share
-  K47  Backup ZIP → topic admin Telegram
-  M    Không watermark
-
-================================================================================
-5. LUỒNG NGHIỆP VỤ
-================================================================================
-
-5.1 Một ngày VN
-  Lịch/START → userbot collect (nền web-bot) → xếp seq + ads
-  → up kênh RR (L1) → ghi day_items (L2) → notify admin
-  → recheck ads → Publish → user /today|/day
-  → membership + VIP → delivery tuần tự (L3) → link share
-
-5.2 Delivery (mượn Ý TƯỞNG clender _serve_album — viết hàm mới)
-  copy batch → forward batch → từng msg; FloodWait sleep+retry; không skip bài
-
-5.3 Membership (mượn Ý TƯỞNG clender membership.py — viết lại aiogram)
-  gate, cache, fail-open, pending deep link, nút Join + Recheck
-
-5.4 VIP / Stars / Giftcode / Share / Catalog / Rollup
-  Thiết kế theo spec; không copy file từ repo cũ
-
-5.5 Backup (mượn Ý TƯỞNG clender backup.py)
-  safe sqlite copy, ZIP, rotate, scheduler, Telegram upload, web status/run
-
-5.6 Userbot nền (mượn Ý TƯỞNG web-bot-schedule-realtime-fe96)
-  Giữ/tích hợp pipeline auto, flood fix, web SSE — hook thêm index sau forward
-
-================================================================================
-6. DATA MODEL (thiết kế mới — không schema clender)
-================================================================================
-
-  bots, days, day_items, ads_contracts, media_sets,
-  users, vip_plans, gift_codes, share_refs, share_clicks,
-  user_deliveries, contribution_queue, rollup_indexes
-
-  day_items: seq, src_chat_id, src_msg_id, album_msg_ids[], item_type, ads_alias
-
-================================================================================
-7. BOT UX & WEB (yêu cầu chức năng — layout tự thiết kế)
-================================================================================
-
-  Bot: /start, /today, /day, /find, /vip, /redeem, /invite, /me, keyboard menu
-  Web: config 3 lớp, bots, archive publish/close, VIP, gift, ads, share, users,
-       backup status/run/download, membership & forum IDs
-
-  Web userbot nền: giữ khả năng từ web-bot (topic, lịch, START…) — tích hợp,
-  không bắt buộc giữ nguyên mọi tab nếu UX mới hợp lý hơn.
-
-================================================================================
-8. MAP “ÁP DỤNG ƯU ĐIỂM” (KHÔNG MAP COPY FILE)
-================================================================================
-
-  Bài toán                 Lấy ý từ                         Làm mới
-  -----------------------  --------------------------------  ------------------
-  Auto up + flood          web-bot-schedule-realtime-fe96    Tích hợp + hook index
-  Web SSE / lịch / config  web-bot-schedule-realtime-fe96    Mở rộng API platform
-  Index ngày sau up        (thiết kế mới)                    Hook sau forward
-  Queue 10 bot             (thiết kế mới)                    Orchestrator riêng
-  Copy album + FloodWait   clender _serve_album              deliver_item() mới
-  Force-join               clender membership              Gate aiogram mới
-  Numeric deep link        clender token.py                Util + share ngày
-  Backup ZIP + TG          clender backup.py               Scheduler + API FastAPI
-  VIP Stars                (thiết kế theo spec)            Không copy clender
-
-================================================================================
-9. CÁCH LÀM VIỆC CHO AI
-================================================================================
-
-  1. Clone 2 repo tham chiếu (đúng branch ở mục đầu file)
-  2. Đọc spec mục 2–7 — thiết kế module
-  3. Implement trên codebase đích (có thể nhánh research-bot hoặc branch mới)
-  4. Chỉ mở file repo tham chiếu khi stuck 1 bài toán cụ thể
-  5. Verify: auto up → index → bot /today → membership → backup
-
-  Clone:
+  Clone tham khảo:
     git clone -b cursor/web-bot-schedule-realtime-fe96 \
-      https://github.com/easlymazzawi-collab/upbain /tmp/upbain-webbot-ref
-
+      https://github.com/easlymazzawi-collab/upbain /tmp/upbain-ref
     git clone -b cursor/fix-web-backup-access-2234 \
       https://github.com/easlymazzawi-collab/clender /tmp/clender-ref
 
 ================================================================================
-10. ANTI-PATTERNS
+QUY TẮC CHUNG (mọi phase)
 ================================================================================
 
-  x Dùng research-bot-platform-fe96 làm repo mẫu copy
-  x Copy cả clender/ hoặc cả tool__tauto_nostage.py sang không review
-  x Schema media_albums clender cho archive ngày
-  x Forward media vào forum backup (A2)
-  x Xóa ads chat user (A1)
-  x Folder tên platform/ (crash Windows Pyrogram)
-  x Ghép Flask clender + FastAPI không thiết kế lại
+  SPEC cố định (không đổi giữa chừng):
+    A1  Không xóa ads trong chat user; strip khi xem archive sau revoke
+    A2  Archive = link + metadata; KHÔNG forward vào forum backup
+    B4  Tối đa 10 bot token (mở rộng dần, phase đầu chỉ 1 bot)
+    B6  1 userbot + web chung
+    C9  Ngày VN label 30-06-2026, timezone Asia/Ho_Chi_Minh
+
+  CẤM mọi phase:
+    - Làm hết VIP + 10 bot + rollup + backup Telegram trong 1 prompt
+    - Copy nguyên folder clender hoặc cả repo web-bot sang
+    - Folder tên platform/ (crash Windows Pyrogram)
+    - Forward media vào forum backup
+
+  Mỗi phase xong: commit nhỏ, mô tả rõ phase, chạy verify checklist.
 
 ================================================================================
-11. ACCEPTANCE CRITERIA
+TỔNG QUAN LỘ TRÌNH
 ================================================================================
 
-  1. Userbot auto up (nền web-bot) + ghi index link
-  2. Bot delivery seq đúng, fallback + FloodWait (logic clender)
-  3. ≤10 bot queue, restart web
-  4. VIP/Stars/giftcode
-  5. Ads alias revoke strip (không xóa chat cũ)
-  6. Share dedupe + leaderboard
-  7. Membership force-join (logic clender)
-  8. Backup auto/manual + Telegram
-  9. Rollup 30 ngày
-  10. Một hệ thống thống nhất — không phải 2 repo dán nhau
+  Phase 0  MÓNG      Nền chạy được: userbot + web + config + log
+  Phase 1  KHUNG     Schema DB + 3 lớp ON/OFF + hook rỗng + 1 bot skeleton
+  Phase 2  XƯƠNG     L1 up kênh + L2 ghi index + L3 bot /day 1 nguồn
+  Phase 3  CƠ BẢN    Delivery vững (clender) + membership + backup local
+  Phase 4  MỞ RỘNG  Multi-bot queue + VIP/Stars + ads alias + share
+  Phase 5  VỮNG      Rollup + backup Telegram + web đủ tab + hardening
+
+  !!! AI chỉ nhận task của 1 phase. Không nhảy phase. !!!
 
 ================================================================================
-12. PROMPT NGẮN CHO AI (copy-paste)
+PHASE 0 — MÓNG (Foundation)
+Mục tiêu: Tool chạy được, web mở được, userbot kết nối Telegram
 ================================================================================
 
-Build UpBain Research Platform v2.
+  GIAO CHO AI (copy prompt phase này):
 
-SPEC: archive link+metadata (A2), không xóa ads chat cũ (A1), 3 lớp ON/OFF,
-userbot + ≤10 bot, VIP/Stars, ads alias, share, backup.
+  ---
+  Phase 0 only. Dựng nền UpBain Research Platform.
 
-HAI REPO THAM CHIẾU (chỉ mượn ưu điểm — KHÔNG copy cả dự án):
-  1. upbain @ cursor/web-bot-schedule-realtime-fe96
-     → userbot auto up, web SSE, flood fix, lịch, topic map
-  2. clender @ cursor/fix-web-backup-access-2234
-     → membership, delivery fallback, backup ZIP, numeric deep link
+  Tham chiếu: upbain @ cursor/web-bot-schedule-realtime-fe96
+  - tool__tauto_nostage.py entry
+  - web/server.py FastAPI + SSE
+  - core/config_store.py → data/auto_config.json
+  - Cài Pyrogram, chạy web port 8080
 
-KHÔNG dùng research-bot-platform-fe96 làm mẫu paste.
+  Deliverables:
+  1. pip install -r requirements.txt → python tool chạy không crash
+  2. Web login/token, tab Telegram & Bot: api_id, api_hash, notify bot
+  3. START/STOP userbot, log SSE hiện trên dashboard
+  4. Package platform code tên research_platform/ (không platform/)
+  5. Windows: bootstrap stdlib platform nếu cần
 
-Trước khi code: đọc spec, thiết kế module mới. Stuck thì mượn pattern, viết lại.
+  CHƯA làm: SQLite platform, bot delivery, VIP, clender port, 10 bot.
+
+  Verify:
+  [ ] Web http://127.0.0.1:8080 mở
+  [ ] Nhập API → restart → userbot online
+  [ ] Auto 1 topic test (hoặc /runtopic) forward được 1 batch
+  [ ] Không có folder platform/ shadow stdlib
+
+  Xong → commit "Phase 0: foundation userbot + web"
+
+  ---
+
+  Mượn ý từ web-bot: entry script, web SSE, config JSON, flood serial cơ bản.
+  Không copy research-bot branch.
 
 ================================================================================
-13. LINK
+PHASE 1 — KHUNG (Skeleton)
+Mục tiêu: Kiến trúc 3 lớp + DB + config platform — chưa cần bot gửi media
 ================================================================================
 
-  UpBain (tham chiếu userbot/web):
-    https://github.com/easlymazzawi-collab/upbain/tree/cursor/web-bot-schedule-realtime-fe96
+  GIAO CHO AI:
 
-  Clender (tham chiếu bot/backup/membership):
-    https://github.com/easlymazzawi-collab/clender/tree/cursor/fix-web-backup-access-2234
+  ---
+  Phase 1 only. Khung Research Platform.
 
-  Docs: docs/research-platform/
+  Prerequisite: Phase 0 PASS.
+
+  Deliverables:
+  1. research_platform/db.py — init_db() tạo bảng:
+     bots, days, day_items, users (tối thiểu)
+  2. research_platform/config.py — load/save platform.* trong auto_config.json
+     Keys: enabled, publish_channels, archive_index, bot_delivery,
+           admin_forum_id, delivery_delay_sec, bot { token, source_forum_id... }
+  3. research_platform/hooks.py — after_auto_forward() stub (log only)
+  4. Hook gọi sau lượt forward userbot (1 dòng trong pipeline hiện có)
+  5. Web: tab Research Platform — form ON/OFF 3 lớp + lưu PATCH /api/platform
+  6. GET /api/platform trả config masked + days[] rỗng
+
+  CHƯA làm: bot aiogram chạy thật, copy message, VIP, backup, membership.
+
+  Verify:
+  [ ] data/platform.db tạo sau init
+  [ ] Bật platform.enabled trên web → lưu được
+  [ ] Chạy auto 1 lượt → hook log "after_auto_forward" (chưa ghi DB cũng OK)
+  [ ] 3 checkbox lớp lưu/đọc đúng
+
+  Xong → commit "Phase 1: platform skeleton DB + config + hook stub"
+
+  ---
+
+  Thiết kế schema theo spec — không copy clender media_albums.
+
+================================================================================
+PHASE 2 — XƯƠNG (Core pipeline — 1 bot, 1 ngày)
+Mục tiêu: Up kênh → ghi index → bot /day gửi được (happy path đơn giản)
+================================================================================
+
+  GIAO CHO AI:
+
+  ---
+  Phase 2 only. Core pipeline 1 bot 1 ngày.
+
+  Prerequisite: Phase 1 PASS.
+
+  Deliverables:
+  1. archive_index.py — sau auto forward:
+     - Tạo/update day theo topic_label VN (30-06-2026)
+     - Ghi day_items: seq, src_chat_id, src_msg_id, album_msg_ids JSON
+  2. dates.py — today_vn(), topic_label_vn(), parse_day_label()
+  3. bot_manager.py + bot_delivery.py — start 1 bot aiogram nền
+  4. bot_handlers.py tối thiểu:
+     - /start, /today, /day DD-MM-YYYY
+     - deliver_day_to_user: loop items, copy_message đơn giản
+     - delay delivery_delay_sec giữa bài
+  4. user_deliveries — lưu last_seq_sent (resume stub)
+  5. Web: nhập 1 bot token + forum/topic nguồn; nút Restart bot
+  6. Archive tab: list days + status draft/indexed/published
+
+  CHƯA làm: fallback forward, membership, VIP, 10 bot, ads alias, backup.
+
+  Verify:
+  [ ] Auto up 1 lượt → DB có 1 day + N day_items
+  [ ] Publish day (API hoặc tạm auto published)
+  [ ] Bot /today gửi đúng thứ tự seq (happy path, forum nguồn bot đã join)
+  [ ] Tắt archive_index → không ghi DB; tắt bot_delivery → bot không gửi
+
+  Xong → commit "Phase 2: index + 1 bot /day happy path"
+
+  ---
+
+  Mượn ý web-bot: hook sau forward.
+  Copy message: viết đơn giản trước — fallback để Phase 3.
+
+================================================================================
+PHASE 3 — CƠ BẢN VỮNG (Robustness — pattern Clender)
+Mục tiêu: Delivery không gãy, membership, backup ZIP local
+================================================================================
+
+  GIAO CHO AI:
+
+  ---
+  Phase 3 only. Vững delivery + membership + backup local.
+
+  Prerequisite: Phase 2 PASS.
+
+  Tham chiếu ý clender (viết lại, không paste file):
+  - _serve_album → deliver_item(): copy→forward→per-msg, FloodWait 3 lần
+  - membership.py → cache TTL, fail-open, gate_or_prompt, mem_recheck
+  - backup.py → safe sqlite copy, ZIP, rotate local
+
+  Deliverables:
+  1. _copy_item / deliver_item fallback đầy đủ (clender thứ tự)
+  2. membership.py + config membership_channel_id, force_join_check_sec
+  3. backup.py create_backup_file + GET download ZIP
+  4. Web: membership fields, nút Tải ZIP
+  5. resume delivery: bot die giữa seq → tiếp từ last_seq_sent
+
+  CHƯA làm: 10 bot queue, VIP Stars, ads, share, Telegram upload backup, rollup.
+
+  Verify:
+  [ ] Simulate FloodWait → bot retry, không skip bài
+  [ ] copy fail → forward fallback hoạt động
+  [ ] User chưa join kênh → bị chặn + recheck OK sau join
+  [ ] Backup ZIP có platform.db + auto_config masked + archive_index.json
+  [ ] Resume: dừng giữa delivery → /day tiếp từ seq cũ
+
+  Xong → commit "Phase 3: clender patterns delivery + membership + backup local"
+
+  ---
+
+================================================================================
+PHASE 4 — MỞ RỘNG (Features)
+Mục tiêu: Multi-bot, monetize, ads, share — vẫn từng mảnh nếu cần
+================================================================================
+
+  GIAO CHO AI — có thể tách 4a / 4b / 4c:
+
+  ---
+  Phase 4a — Multi-bot queue (Prerequisite: Phase 3 PASS)
+
+  Deliverables:
+  - bots[] config max 10, queue_order
+  - run_queue.py orchestrator tuần tự
+  - bot_manager restart đơn/all
+  - Web tab Bots (10)
+
+  Verify: 2 bot config → queue chạy lần lượt, restart 1 bot OK.
+
+  ---
+  Phase 4b — VIP + Stars + giftcode
+
+  Deliverables:
+  - vip_plans, gift_codes tables + web CRUD
+  - /vip, /redeem, /buy_{id} invoice XTR
+  - can_access_archive nếu require_vip_for_archive
+
+  Verify: grant VIP web → /today OK; Stars test invoice flow.
+
+  ---
+  Phase 4c — Ads + Share + Catalog
+
+  Deliverables:
+  - ads_contracts, alias, terminate, recheck sau up
+  - share_refs numeric token, /invite, leaderboard
+  - /find, contribution forward admin
+
+  Verify: revoke alias → xem ngày không còn ads; share 1 user 1 click.
+
+  Xong mỗi sub-phase → commit riêng.
+
+  ---
+
+================================================================================
+PHASE 5 — VỮNG (Production-ready)
+Mục tiêu: Rollup, backup Telegram, web đủ, notify admin, hardening
+================================================================================
+
+  GIAO CHO AI:
+
+  ---
+  Phase 5 only. Hoàn thiện vận hành.
+
+  Prerequisite: Phase 4 PASS.
+
+  Deliverables:
+  1. rollup.py — 30 ngày text mục lục, không xóa cũ
+  2. backup scheduler + send_backup_to_telegram + POST /api/platform/backup
+  3. admin_notify_group — tin sau mỗi lượt auto (link kế, trạng thái)
+  4. Web sub-tabs đủ: VIP, Gift, Ads, Share, Users, backup status
+  5. Publish/Close day, recheck ads button
+  6. Docs DISASTER_RECOVERY: bot die, restore ZIP
+
+  Verify:
+  [ ] Rollup post catalog topic
+  [ ] Backup auto 24h + Backup ngay + file lên Telegram topic
+  [ ] End-to-end: lịch auto → index → publish → user /today → share link
+  [ ] Import dữ liệu cũ (.env, topic_map) vẫn hoạt động (web-bot nền)
+
+  Xong → commit "Phase 5: production rollup backup notify"
+
+  ---
+
+================================================================================
+PROMPT MẪU GIAO AI (template — điền phase)
+================================================================================
+
+  Bạn là senior Python dev. CHỈ làm Phase [N] trong PROJECT_PROMPT.txt.
+
+  Repo implement: upbain (branch tùy team, không copy research-bot nguyên xi).
+
+  Tham chiếu có chọn lọc:
+  - web-bot-schedule-realtime-fe96 → userbot/web nền
+  - clender fix-web-backup-access-2234 → pattern phase 3+
+
+  Quy tắc: A1/A2, không copy cả dự án, không nhảy phase.
+
+  Phase [N] deliverables: [dán từ mục phase trên]
+
+  Checklist verify: [dán checklist phase]
+
+  Output: code + commit message + báo cáo checklist PASS/FAIL từng dòng.
+
+  KHÔNG làm phase khác dù "tiện làm luôn".
+
+================================================================================
+PHASE 0 — PROMPT NGẮN SẴN COPY
+================================================================================
+
+  Phase 0 only. Dựng nền: userbot Pyrogram + FastAPI web + auto_config.json.
+  Tham chiếu upbain @ cursor/web-bot-schedule-realtime-fe96 (entry, web SSE,
+  config). Package research_platform/ empty stub. Chưa DB platform, chưa bot
+  delivery. Verify: web mở, API Telegram, auto 1 batch forward. Commit Phase 0.
+
+================================================================================
+PHASE 1 — PROMPT NGẮN SẴN COPY
+================================================================================
+
+  Phase 1 only. Khung: SQLite bots/days/day_items/users, config platform.*,
+  hook after_auto_forward stub, web tab Platform ON/OFF 3 lớp, GET/PATCH
+  /api/platform. Prerequisite Phase 0 PASS. Chưa aiogram delivery. Verify
+  checklist Phase 1. Commit Phase 1.
+
+================================================================================
+PHASE 2 — PROMPT NGẮN SẴN COPY
+================================================================================
+
+  Phase 2 only. Core 1 bot: archive_index ghi sau auto, 1 aiogram bot
+  /today /day, copy đơn giản + delay, web bot token + archive list. Prerequisite
+  Phase 1 PASS. Chưa fallback clender, chưa VIP. Verify checklist Phase 2.
+  Commit Phase 2.
+
+================================================================================
+PHASE 3 — PROMPT NGẮN SẴN COPY
+================================================================================
+
+  Phase 3 only. Mượn ý clender (viết lại): delivery copy→forward→per-msg +
+  FloodWait, membership gate, backup ZIP local + download web. Resume
+  last_seq_sent. Prerequisite Phase 2 PASS. Chưa 10 bot/VIP/rollup. Verify
+  Phase 3. Commit Phase 3.
+
+================================================================================
+PHASE 4a/4b/4c — PROMPT NGẮN (chọn một)
+================================================================================
+
+  4a: Multi-bot queue max 10, restart web. Phase 3 PASS.
+  4b: VIP plans, Stars XTR, giftcode web+bot. Phase 3 PASS (4a optional song song).
+  4c: Ads alias revoke, share ref leaderboard, /find contribution. Phase 3 PASS.
+
+================================================================================
+PHASE 5 — PROMPT NGẮN SẴN COPY
+================================================================================
+
+  Phase 5 only. Rollup 30 ngày, backup scheduler + Telegram upload, admin
+  notify group, web tabs đủ, publish/close day, disaster recovery doc. Prerequisite
+  Phase 4 PASS. Verify end-to-end. Commit Phase 5.
+
+================================================================================
+BẢNG PHỤ THUỘC PHASE
+================================================================================
+
+  Phase 0 ──► Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4a ──► Phase 5
+                                      │              │
+                                      │         Phase 4b ──┘
+                                      │              │
+                                      └──────── Phase 4c (sau 3, song song 4a OK)
+
+  Không được: Phase 0 → Phase 5
+  Không được: Phase 2 + Phase 4b cùng một prompt (trừ khi 2 đã PASS và chỉ fix 4b)
+
+================================================================================
+KHI AI TRẢ LỜI XONG 1 PHASE — BẠN REVIEW
+================================================================================
+
+  1. Chạy checklist verify của phase đó
+  2. PASS → giao prompt phase tiếp theo (copy từ mục "PROMPT NGẮN")
+  3. FAIL → giao lại CÙNG phase, nêu rõ mục FAIL — không nhảy phase
+  4. AI "làm thêm cho tiện" → reject, bảo revert phần ngoài scope phase
+
+================================================================================
+LINK
+================================================================================
+
+  UpBain web-bot:  .../upbain/tree/cursor/web-bot-schedule-realtime-fe96
+  Clender:         .../clender/tree/cursor/fix-web-backup-access-2234
+  Spec chi tiết:   docs/research-platform/ (ARCHITECTURE, DECISIONS, DATA_MODEL)
 
 ================================================================================
 END
