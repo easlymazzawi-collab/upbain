@@ -240,7 +240,7 @@ async def run_all_task(
         await notify("⚠️ /all: chưa có link nguồn — dán link tab /all rồi Lưu.")
         return False
 
-    from core.all_config import load_destination_channels, plain_skip_last, split_destination_channels, trim_posts_for_plain
+    from core.all_config import load_destination_channels, plain_skip_last, resolve_plain_posts, split_destination_channels
 
     all_chs, plain_chs = split_destination_channels(cfg)
     channels = load_destination_channels(cfg)
@@ -299,14 +299,17 @@ async def run_all_task(
 
     xep = resolve_xep_settings(tcfg, g, "/all")
     use_ads = bool(task.get("use_ads", False))
+    plain_cfg = cfg.get("plain_task") or {}
     skip_n = plain_skip_last(cfg)
-    plain_posts = trim_posts_for_plain(result.posts, cfg=cfg) if plain_chs else []
+    plain_posts = resolve_plain_posts(result.posts, cfg=cfg) if plain_chs else []
     plain_media = sum(p.media_count for p in plain_posts)
 
     plain_line = ""
     if plain_chs:
-        if skip_n > 0:
+        if skip_n > 0 and plain_cfg.get("included_msg_ids") is None:
             plain_line = f"\nUp bài: {len(plain_posts)}/{result.total_posts} bài ({plain_media} media) — bỏ {skip_n} bài cuối"
+        elif plain_cfg.get("included_msg_ids") is not None:
+            plain_line = f"\nUp bài: {len(plain_posts)}/{result.total_posts} bài ({plain_media} media) — tick chọn trên web"
         else:
             plain_line = f"\nUp bài: {len(plain_posts)} bài ({plain_media} media)"
 

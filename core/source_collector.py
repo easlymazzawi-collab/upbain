@@ -120,6 +120,8 @@ async def collect_batch_from_topic(
     topic_cfg: dict,
     global_cfg: dict,
     target_media_override: int | None = None,
+    *,
+    dry_run: bool = False,
 ) -> CollectResult:
     pinned_id = topic_cfg.get("pinned_msg_id") or await get_pinned_message_id(
         client, src_chat_id, topic_id
@@ -216,7 +218,8 @@ async def collect_batch_from_topic(
         )
         scan_cursor = cursor_id
 
-    update_after_scan(src_chat_id, topic_id, rem_posts, rem_media, scan_cursor, pinned_id)
+    if not dry_run:
+        update_after_scan(src_chat_id, topic_id, rem_posts, rem_media, scan_cursor, pinned_id)
 
     warn = check_low_stock(src_chat_id, topic_id, target_media if sufficient else total_media)
 

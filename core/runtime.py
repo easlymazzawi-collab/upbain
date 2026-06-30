@@ -22,6 +22,7 @@ DEFAULT_RUNTIME: dict[str, Any] = {
     "log": [],
     "waiting_topics": {},
     "pending_up": {},
+    "all_batch_preview": None,
 }
 
 
@@ -188,3 +189,18 @@ def clear_all_pending_up(*, log_msg: str = "") -> int:
 def get_pending_up() -> dict:
     with _lock:
         return dict(_read().get("pending_up") or {})
+
+
+def set_all_batch_preview(data: dict | None) -> None:
+    with _lock:
+        rt = _read()
+        if data is None:
+            rt.pop("all_batch_preview", None)
+        else:
+            rt["all_batch_preview"] = data
+        _write(rt)
+
+
+def get_all_batch_preview() -> dict | None:
+    with _lock:
+        return _read().get("all_batch_preview")

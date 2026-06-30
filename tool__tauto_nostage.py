@@ -2383,6 +2383,7 @@ from core.bot_notify import send_bot_notify
 from core.runtime import append_log, mark_run_done, mark_run_start
 from core.scheduler import scheduler_loop
 from core.stock_watcher import stock_poll_loop
+from core.all_batch_preview import all_batch_preview_loop
 from core.source_collector import collect_batch_from_topic
 from core.inventory import get_all_inventory
 
@@ -2444,8 +2445,12 @@ async def _all_build_and_forward(slot_data, channels):
     if plain_chs:
         plain_msgs = slot_data.get("plain_content_msgs")
         if plain_msgs is None:
-            from core.all_config import trim_posts_for_plain
-            plain_msgs = trim_posts_for_plain(slot_data.get("content_msgs") or [])
+            from core.all_config import resolve_plain_posts
+            from core.source_collector import AtomicPost
+
+            raw = slot_data.get("content_msgs") or []
+            posts = [AtomicPost(msg_id=m, media_count=0) for m in raw]
+            plain_msgs = [p.msg_id for p in resolve_plain_posts(posts)]
         plain_media = slot_data.get("plain_total_media_count")
         if plain_media is None and plain_msgs:
             plain_media = slot_data.get("total_media_count", 0)
@@ -2696,6 +2701,13 @@ async def _execute_web_action(action: dict):
             mark_run_done("ok" if ok else "skip")
             if not ok:
                 await _notify("⚠️ /all task: kiểm tra chat nguồn + kênh đích trên web")
+        elif atype == "refresh_all_batch":
+            from core.all_batch_preview import refresh_all_batch_preview
+            p = await refresh_all_batch_preview(app)
+            if p:
+                append_log("info", f"Batch /all: {p.get('total_posts')} bài / {p.get('total_media')} media")
+            else:
+                append_log("info", "Batch /all: chưa có link nguồn")
         elif atype == "run_topic":
             sid = int(params["src_chat_id"])
             tid = int(params["topic_id"])
@@ -2875,6 +2887,7 @@ async def main():
     asyncio.ensure_future(task_auto_clean_dead())
     asyncio.ensure_future(scheduler_loop(_run_scheduled_cycle))
     asyncio.ensure_future(stock_poll_loop(_stock_poll_run))
+    asyncio.ensure_future(all_batch_preview_loop(app))
     asyncio.ensure_future(task_process_web_actions())
     _start_web_server()
 

@@ -71,6 +71,10 @@
     .topic-link-row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
     .topic-link-row input { flex: 1; min-width: 220px; margin: 0; }
     .topic-link-row button { margin: 0; white-space: nowrap; }
+    .post-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+    .post-row input { width: auto; margin: 0; }
+    .post-row a { color: var(--accent); font-size: 0.8rem; margin-left: auto; }
+    #plain-post-list { max-height: 360px; overflow-y: auto; }
   </style>
 </head>
 <body>
@@ -182,6 +186,11 @@
         <p class="hint" id="all-source-hint">—</p>
       </div>
       <div class="card">
+        <h2>Batch hiện tại <span class="badge" id="all-batch-badge">—</span></h2>
+        <p id="all-batch-summary" class="hint">Đang chờ quét nhóm nguồn...</p>
+        <p class="hint" id="all-batch-updated" style="margin:0">—</p>
+      </div>
+      <div class="card">
         <h2>Kênh đích /all <span class="badge" id="all-ch-count">0</span></h2>
         <p class="hint">Tick kênh → lưu real-time. Sync folder ở tab Kênh.</p>
         <div class="btn-row">
@@ -202,9 +211,18 @@
           <span class="badge" id="plain-status">—</span>
         </label>
         <p class="hint">Lệnh <code>/all</code> trên Telegram + auto lịch đều gửi bài lên các kênh này (kèm tab /all nếu bật).</p>
-        <label>Bỏ qua N bài cuối (không up nhánh này)</label>
-        <input id="plain-skip" type="number" min="0" value="0" onchange="patchPlain({skip_last_posts:+this.value||0})" />
-        <p class="hint" id="plain-skip-hint">0 = up hết batch. Ví dụ: 2 = bài cuối cùng trong nhóm /all không lên kênh Up bài.</p>
+        <label>Bỏ qua N bài cuối (nhanh)</label>
+        <input id="plain-skip" type="number" min="0" value="0" onchange="applyPlainSkip()" />
+        <p class="hint" id="plain-skip-hint">Hoặc tick từng bài bên dưới — lưu real-time.</p>
+      </div>
+      <div class="card">
+        <h2>Chọn bài up nhánh này <span class="badge" id="plain-post-count">0</span></h2>
+        <div class="btn-row">
+          <button class="secondary" onclick="selectAllPlainPosts(true)">Chọn tất cả</button>
+          <button class="secondary" onclick="selectAllPlainPosts(false)">Bỏ chọn</button>
+          <button class="secondary" onclick="runAction('refresh_all_batch')">🔄 Quét lại batch</button>
+        </div>
+        <div id="plain-post-list"><p class="hint">Chưa có dữ liệu batch...</p></div>
       </div>
       <div class="card">
         <h2>Kênh Up bài <span class="badge" id="plain-ch-count">0</span></h2>
@@ -337,6 +355,10 @@
     let channelCache = [];
     let channelSaveTimer = null;
     let plainSaveTimer = null;
+    let plainPostSaveTimer = null;
+    let allBatchPreview = null;
+    let plainIncludedIds = new Set();
+    let allTaskCache = {};
     let scheduleTimes = ["08:00", "20:00"];
     let es = null;
     let importQueue = [];
@@ -647,17 +669,125 @@
       renderChannelPicker("all-channels", "all-ch", channels, task.selected_channel_ids, "debounceAllChannels()");
     }
 
+    function tmePostLink(chatId, topicId, msgId) {
+      const raw = String(chatId).replace(/^-100/, "");
+      return `https://t.me/c/${raw}/${topicId}/${msgId}`;
+    }
+
+    function plainIdsFromSkip(posts, skip) {
+      const ids = (posts || []).map(p => p.msg_id);
+      const n = Math.max(0, +skip || 0);
+      if (n <= 0) return ids;
+      if (n >= ids.length) return [];
+      return ids.slice(0, ids.length - n);
+    }
+
+    function renderAllBatchPreview(preview, allTask) {
+      allTaskCache = allTask || {};
+      allBatchPreview = preview;
+      const badge = $("all-batch-badge");
+      if (!allTask?.source_chat_id) {
+        badge.textContent = "—";
+        badge.className = "badge warn";
+        $("all-batch-summary").textContent = "Chưa có link nguồn — dán link rồi Lưu.";
+        $("all-batch-updated").textContent = "";
+        return;
+      }
+      if (!preview?.posts) {
+        badge.textContent = "…";
+        badge.className = "badge";
+        $("all-batch-summary").textContent = "Đang quét nhóm nguồn... (userbot phải online, ~15s/lần)";
+        $("all-batch-updated").textContent = "";
+        return;
+      }
+      const n = preview.total_posts || 0;
+      const m = preview.total_media || 0;
+      const tgt = preview.target_media || "?";
+      badge.textContent = `${n} bài`;
+      badge.className = "badge " + (preview.sufficient ? "ok" : "warn");
+      $("all-batch-summary").innerHTML =
+        `<strong>${n}</strong> bài · <strong>${m}</strong>/${tgt} media` +
+        (preview.sufficient
+          ? ' · <span class="badge ok">đủ batch</span>'
+          : ' · <span class="badge warn">chưa đủ</span>');
+      $("all-batch-updated").textContent = preview.updated_at
+        ? `Cập nhật: ${fmtTs(preview.updated_at)}`
+        : "";
+    }
+
+    function renderPlainPostPicker(preview, plain, allTask) {
+      const posts = preview?.posts || [];
+      const skip = plain.skip_last_posts || 0;
+      $("plain-skip").value = skip;
+      if (plain.included_msg_ids != null) {
+        plainIncludedIds = new Set((plain.included_msg_ids || []).map(Number));
+      } else {
+        plainIncludedIds = new Set(plainIdsFromSkip(posts, skip));
+      }
+      $("plain-post-count").textContent = posts.length
+        ? `${plainIncludedIds.size}/${posts.length}`
+        : "0";
+      const sel = plainIncludedIds.size;
+      $("plain-skip-hint").textContent = posts.length
+        ? (sel < posts.length
+          ? `Đang chọn ${sel}/${posts.length} bài cho nhánh Up bài — tab /all vẫn up đủ batch.`
+          : "Chọn tất cả bài cho nhánh Up bài.")
+        : "Chưa có batch — lưu link tab /all và đợi quét (~15s).";
+      if (!posts.length) {
+        $("plain-post-list").innerHTML = "<p class=\"hint\">Chưa có bài trong batch.</p>";
+        return;
+      }
+      const chat = preview?.src_chat_id || allTask?.source_chat_id;
+      const topic = preview?.topic_id || allTask?.source_topic_id;
+      $("plain-post-list").innerHTML = posts.map(p => {
+        const checked = plainIncludedIds.has(p.msg_id);
+        const link = tmePostLink(chat, topic, p.msg_id);
+        return `<label class="post-row">
+          <input type="checkbox" ${checked ? "checked" : ""} onchange="togglePlainPost(${p.msg_id}, this.checked)" />
+          <span>#${p.index} · msg ${p.msg_id} · ${p.media_count} media</span>
+          <a href="${link}" target="_blank" rel="noopener">mở ↗</a>
+        </label>`;
+      }).join("");
+    }
+
+    function togglePlainPost(msgId, on) {
+      if (on) plainIncludedIds.add(msgId);
+      else plainIncludedIds.delete(msgId);
+      const posts = allBatchPreview?.posts || [];
+      $("plain-post-count").textContent = posts.length
+        ? `${plainIncludedIds.size}/${posts.length}`
+        : "0";
+      clearTimeout(plainPostSaveTimer);
+      plainPostSaveTimer = setTimeout(() => {
+        patchPlain({ included_msg_ids: [...plainIncludedIds] }, true);
+      }, 350);
+    }
+
+    function selectAllPlainPosts(on) {
+      const posts = allBatchPreview?.posts || [];
+      plainIncludedIds = on ? new Set(posts.map(p => p.msg_id)) : new Set();
+      renderPlainPostPicker(allBatchPreview, {
+        skip_last_posts: +$("plain-skip").value || 0,
+        included_msg_ids: [...plainIncludedIds],
+      }, allTaskCache);
+      patchPlain({ included_msg_ids: [...plainIncludedIds] }, true);
+    }
+
+    function applyPlainSkip() {
+      const skip = +$("plain-skip").value || 0;
+      const posts = allBatchPreview?.posts || [];
+      const ids = plainIdsFromSkip(posts, skip);
+      plainIncludedIds = new Set(ids);
+      patchPlain({ skip_last_posts: skip, included_msg_ids: ids });
+    }
+
     function renderPlainTask(plain, channels) {
       $("plain-enabled").checked = !!plain.enabled;
       $("plain-status").innerHTML = plain.enabled
         ? `<span class="badge ok">ON</span>` : `<span class="badge warn">OFF</span>`;
       $("plain-ch-count").textContent = (plain.selected_channel_ids || []).length;
-      $("plain-skip").value = plain.skip_last_posts ?? 0;
-      const skip = plain.skip_last_posts || 0;
-      $("plain-skip-hint").textContent = skip > 0
-        ? `Đang bỏ ${skip} bài cuối — chỉ nhánh Up bài, tab /all vẫn up đủ batch.`
-        : "0 = up hết batch. Ví dụ: 2 = bài cuối trong nhóm /all không lên kênh Up bài.";
       renderChannelPicker("plain-channels", "plain-ch", channels, plain.selected_channel_ids, "debouncePlainChannels()");
+      renderPlainPostPicker(allBatchPreview, plain, allTaskCache);
     }
 
     function renderChannels(channels, task) {
@@ -709,6 +839,7 @@
       renderRuntime(snap.runtime);
       renderInventory(snap.inventory);
       renderTopics(Object.values(snap.config.topic_sources || {}));
+      renderAllBatchPreview(snap.runtime?.all_batch_preview, snap.config.all_task || {});
       renderChannels(snap.channels || channelCache, snap.config.all_task || {});
       renderPlainTask(snap.config.plain_task || {}, snap.channels || channelCache);
       renderChannelsPage(snap.channels || channelCache, snap.folders || []);
@@ -792,11 +923,15 @@
       } catch (e) { toast("Lỗi: " + e.message); }
     }
 
-    async function patchPlain(patch) {
+    async function patchPlain(patch, quiet) {
       try {
         const r = await api("/plain-task", { method: "PATCH", body: JSON.stringify(patch) });
         renderPlainTask(r, channelCache);
-        toast(patch.enabled !== undefined ? (patch.enabled ? "Đã bật Up bài" : "Đã tắt Up bài") : "Đã lưu Up bài");
+        if (!quiet) {
+          toast(patch.enabled !== undefined
+            ? (patch.enabled ? "Đã bật Up bài" : "Đã tắt Up bài")
+            : "Đã lưu Up bài");
+        }
       } catch (e) { toast("Lỗi: " + e.message); }
     }
 
@@ -820,6 +955,7 @@
       const link = $("all-source-link").value.trim();
       if (!link) { toast("Dán link nguồn trước"); return; }
       await patchAll({ source_link: link });
+      runAction("refresh_all_batch");
     }
 
     async function saveSchedule() {

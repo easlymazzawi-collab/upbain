@@ -83,6 +83,7 @@ class PlainTaskPatchIn(BaseModel):
     enabled: bool | None = None
     selected_channel_ids: list[int] | None = None
     skip_last_posts: int | None = None
+    included_msg_ids: list[int] | None = None
 
 
 class AllTaskIn(BaseModel):
@@ -177,6 +178,7 @@ def _snapshot() -> dict[str, Any]:
             "next_run_at": next_ts or rt.get("next_run_at", 0),
             "waiting_topics": rt.get("waiting_topics") or {},
             "pending_up": rt.get("pending_up") or {},
+            "all_batch_preview": rt.get("all_batch_preview"),
         },
         "channels": channels,
         "folders": folders,

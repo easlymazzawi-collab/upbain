@@ -51,19 +51,53 @@ def merge_all_task(patch: dict[str, Any]) -> dict[str, Any]:
 
 def merge_plain_task(patch: dict[str, Any]) -> dict[str, Any]:
     cfg = load_auto_config()
-    cur = dict(cfg.get("plain_task") or {"enabled": False, "selected_channel_ids": [], "skip_last_posts": 0})
+    cur = dict(cfg.get("plain_task") or {
+        "enabled": False,
+        "selected_channel_ids": [],
+        "skip_last_posts": 0,
+        "included_msg_ids": None,
+        "batch_signature": "",
+    })
     for k, v in patch.items():
-        if v is not None:
+        if v is not None or k == "included_msg_ids":
             cur[k] = v
     cur["skip_last_posts"] = max(0, int(cur.get("skip_last_posts") or 0))
+    if cur.get("included_msg_ids") is not None:
+        cur["included_msg_ids"] = [int(x) for x in cur["included_msg_ids"]]
     cfg["plain_task"] = cur
     save_auto_config(cfg)
     return cur
 
 
+def batch_signature(post_ids: list[int]) -> str:
+    return ",".join(str(int(i)) for i in post_ids)
+
+
+def default_plain_included(post_ids: list[int], skip_last: int = 0) -> list[int]:
+    skip = max(0, int(skip_last or 0))
+    if skip <= 0:
+        return list(post_ids)
+    if skip >= len(post_ids):
+        return []
+    return list(post_ids[:-skip])
+
+
 def plain_skip_last(cfg: dict | None = None) -> int:
     cfg = cfg or load_auto_config()
     return max(0, int((cfg.get("plain_task") or {}).get("skip_last_posts") or 0))
+
+
+def resolve_plain_posts(posts: list, skip_last: int | None = None, cfg: dict | None = None) -> list:
+    """Lọc bài cho nhánh Up bài — ưu tiên tick chọn trên web."""
+    cfg = cfg or load_auto_config()
+    plain = cfg.get("plain_task") or {}
+    if not plain.get("enabled"):
+        return []
+    included = plain.get("included_msg_ids")
+    if included is not None:
+        inc = {int(x) for x in included}
+        return [p for p in posts if int(getattr(p, "msg_id", p)) in inc]
+    return trim_posts_for_plain(posts, skip_last=skip_last, cfg=cfg)
 
 
 def trim_posts_for_plain(posts: list, skip_last: int | None = None, cfg: dict | None = None) -> list:

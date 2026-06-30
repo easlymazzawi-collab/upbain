@@ -63,6 +63,8 @@ DEFAULT_AUTO_CONFIG: dict[str, Any] = {
         "enabled": False,
         "selected_channel_ids": [],
         "skip_last_posts": 0,
+        "included_msg_ids": None,
+        "batch_signature": "",
     },
 }
 
