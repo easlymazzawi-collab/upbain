@@ -46,13 +46,67 @@ TỔNG QUAN LỘ TRÌNH
 ================================================================================
 
   Phase 0  MÓNG      Nền chạy được: userbot + web + config + log
-  Phase 1  KHUNG     Schema DB + 3 lớp ON/OFF + hook rỗng + 1 bot skeleton
+  Phase 1  KHUNG     Schema DB + 3 lớp ON/OFF + hook rỗng + API platform
+  Phase W  WEB UI    Admin Research Platform — sidebar mới (KHÔNG vá tab cũ)
   Phase 2  XƯƠNG     L1 up kênh + L2 ghi index + L3 bot /day 1 nguồn
   Phase 3  CƠ BẢN    Delivery vững (clender) + membership + backup local
   Phase 4  MỞ RỘNG  Multi-bot queue + VIP/Stars + ads alias + share
-  Phase 5  VỮNG      Rollup + backup Telegram + web đủ tab + hardening
+  Phase 5  VỮNG      Rollup + backup Telegram + notify admin + hardening
 
   !!! AI chỉ nhận task của 1 phase. Không nhảy phase. !!!
+
+================================================================================
+WEB UI — QUY TẮC (AI HAY LÀM XẤU — ĐỌC KỸ)
+================================================================================
+
+  VẤN ĐỀ:
+  AI thường "thêm tab Research Platform" vào web/static/index.html (UpBain v28)
+  → file 2500+ dòng, tab chồng tab, sub-tab lộn xộn, UX xấu, khó sửa mãi.
+
+  QUY TẮC CẤM:
+  x Thêm sub-tab / form mới vào section #platform trong index.html v28
+  x Copy thêm 500 dòng JS inline vào index.html cho Platform
+  x Giữ layout "tabs ngang trên cùng" cho admin Research Platform
+  x Bảo "UI tạm" rồi không bao giờ làm lại
+
+  QUY TẮC BẮT BUỘC:
+  ✓ Research Platform admin = WEB APP RIÊNG (route + file riêng)
+  ✓ Layout sidebar trái (học UX clender base.html + style.css — viết lại cho FastAPI)
+  ✓ Font Inter, dark theme, card + table gọn, mobile có menu toggle
+  ✓ API REST giữ /api/platform/* — chỉ đổi frontend
+  ✓ Dashboard userbot v28 (index.html) giữ nguyên cho: START, topic map, lịch, kho
+  ✓ Link chéo: nút "Research Admin →" từ dashboard cũ; "← Userbot" từ admin mới
+
+  CẤU TRÚC FILE GỢI Ý (Phase W):
+
+    web/
+      static/
+        index.html              ← userbot dashboard (CHẠM TỐI THIỂU)
+        platform/
+          index.html            ← shell sidebar (hoặc FastAPI TemplateResponse)
+          css/app.css           ← design system riêng (copy ý clender, không paste Flask)
+          js/app.js             ← fetch /api/platform/*, routing sidebar
+      server.py                 ← GET /admin/platform, /admin/platform/{page}
+
+  SIDEBAR Research Platform (mục menu):
+
+    Tổng quan      — trạng thái bot, queue, lượt hôm nay
+    Cấu hình       — ON/OFF 3 lớp, forum IDs, membership, backup
+    Bots           — CRUD token, restart
+    Archive        — calendar/list ngày, publish/close
+    VIP & Stars    — plans, grant
+    Giftcode
+    Quảng cáo      — alias, recheck
+    Share          — leaderboard, event
+    Users
+    Backup         — status, run, download
+
+  Tham chiếu UX (không copy Flask):
+    clender/web/templates/base.html  — cấu trúc sidebar + topbar
+    clender/web/static/css/style.css — token màu, card, table
+
+  Phase 1–4: chỉ cần API + trang admin tối thiểu (Phase W).
+  Phase 5: mọi màn Platform phải nằm trong admin mới, không swell index.html.
 
 ================================================================================
 PHASE 0 — MÓNG (Foundation)
@@ -112,22 +166,65 @@ Mục tiêu: Kiến trúc 3 lớp + DB + config platform — chưa cần bot g�
            admin_forum_id, delivery_delay_sec, bot { token, source_forum_id... }
   3. research_platform/hooks.py — after_auto_forward() stub (log only)
   4. Hook gọi sau lượt forward userbot (1 dòng trong pipeline hiện có)
-  5. Web: tab Research Platform — form ON/OFF 3 lớp + lưu PATCH /api/platform
-  6. GET /api/platform trả config masked + days[] rỗng
+  5. Web: CHỈ API GET/PATCH /api/platform — KHÔNG thêm tab Platform vào index.html v28
+     (UI admin → Phase W)
 
-  CHƯA làm: bot aiogram chạy thật, copy message, VIP, backup, membership.
+  CHƯA làm: bot aiogram chạy thật, copy message, VIP, backup, membership, web UI đẹp.
 
   Verify:
   [ ] data/platform.db tạo sau init
   [ ] Bật platform.enabled trên web → lưu được
   [ ] Chạy auto 1 lượt → hook log "after_auto_forward" (chưa ghi DB cũng OK)
-  [ ] 3 checkbox lớp lưu/đọc đúng
+  [ ] 3 checkbox lớp lưu/đọc đúng (test qua curl hoặc trang tạm — UI đẹp Phase W)
 
   Xong → commit "Phase 1: platform skeleton DB + config + hook stub"
 
   ---
 
   Thiết kế schema theo spec — không copy clender media_albums.
+
+================================================================================
+PHASE W — WEB UI (Admin Research Platform — sidebar mới)
+Mục tiêu: Giao diện admin đẹp, tách hẳn khỏi dashboard userbot v28
+Chạy sau Phase 1 (API đã có) hoặc song song Phase 2 — TRƯỚC Phase 4
+================================================================================
+
+  GIAO CHO AI:
+
+  ---
+  Phase W only. Web admin Research Platform — KHÔNG sửa index.html v28 (trừ 1 link).
+
+  Prerequisite: Phase 1 PASS (/api/platform hoạt động).
+
+  Tham chiếu UX: clender base.html + style.css (layout sidebar, màu, card).
+  Stack: FastAPI serve static hoặc HTMLResponse; fetch API có sẵn; auth token giữ nguyên.
+
+  Deliverables:
+  1. Route GET /admin/platform (+ /admin/platform/* optional SPA hash)
+  2. web/static/platform/ — app.css, app.js, index.html (sidebar + main content)
+  3. Trang tối thiểu hoạt động:
+     - Cấu hình (ON/OFF 3 lớp, forum IDs, lưu PATCH)
+     - Bots (list + form token)
+     - Archive (bảng days + publish/close)
+  4. index.html v28: CHỈ thêm 1 nút/link "Research Admin" → /admin/platform
+  5. Responsive: sidebar collapse mobile (menu toggle)
+
+  CẤM trong phase này:
+  - Thêm plat-sub-tab vào #platform trong index.html
+  - Inline thêm 200+ dòng CSS/JS vào index.html
+
+  Verify:
+  [ ] /admin/platform mở, sidebar rõ ràng, không giống tab cũ
+  [ ] Lưu config Platform từ admin mới → reload đúng
+  [ ] index.html v28 diff < 20 dòng (chỉ link)
+  [ ] Mobile: sidebar toggle OK
+
+  Xong → commit "Phase W: platform admin sidebar UI (separate from v28 dashboard)"
+
+  Các phase sau (4, 5): thêm màn VIP/Gift/Ads/Share/Users/Backup vào admin MỚI,
+  không quay lại index.html.
+
+  ---
 
 ================================================================================
 PHASE 2 — XƯƠNG (Core pipeline — 1 bot, 1 ngày)
@@ -152,8 +249,8 @@ Mục tiêu: Up kênh → ghi index → bot /day gửi được (happy path đơ
      - deliver_day_to_user: loop items, copy_message đơn giản
      - delay delivery_delay_sec giữa bài
   4. user_deliveries — lưu last_seq_sent (resume stub)
-  5. Web: nhập 1 bot token + forum/topic nguồn; nút Restart bot
-  6. Archive tab: list days + status draft/indexed/published
+  5. Web: bot token qua /admin/platform (Phase W) — không form trong index.html cũ
+  6. Archive tab: list days — trong admin mới nếu Phase W đã xong
 
   CHƯA làm: fallback forward, membership, VIP, 10 bot, ads alias, backup.
 
@@ -191,7 +288,7 @@ Mục tiêu: Delivery không gãy, membership, backup ZIP local
   1. _copy_item / deliver_item fallback đầy đủ (clender thứ tự)
   2. membership.py + config membership_channel_id, force_join_check_sec
   3. backup.py create_backup_file + GET download ZIP
-  4. Web: membership fields, nút Tải ZIP
+  4. Web: membership + backup trong /admin/platform (Phase W pages)
   5. resume delivery: bot die giữa seq → tiếp từ last_seq_sent
 
   CHƯA làm: 10 bot queue, VIP Stars, ads, share, Telegram upload backup, rollup.
@@ -265,7 +362,8 @@ Mục tiêu: Rollup, backup Telegram, web đủ, notify admin, hardening
   1. rollup.py — 30 ngày text mục lục, không xóa cũ
   2. backup scheduler + send_backup_to_telegram + POST /api/platform/backup
   3. admin_notify_group — tin sau mỗi lượt auto (link kế, trạng thái)
-  4. Web sub-tabs đủ: VIP, Gift, Ads, Share, Users, backup status
+  4. Web sub-pages trong /admin/platform: VIP, Gift, Ads, Share, Users, Backup
+     (KHÔNG thêm vào index.html v28)
   5. Publish/Close day, recheck ads button
   6. Docs DISASTER_RECOVERY: bot die, restore ZIP
 
@@ -314,10 +412,18 @@ PHASE 0 — PROMPT NGẮN SẴN COPY
 PHASE 1 — PROMPT NGẮN SẴN COPY
 ================================================================================
 
-  Phase 1 only. Khung: SQLite bots/days/day_items/users, config platform.*,
-  hook after_auto_forward stub, web tab Platform ON/OFF 3 lớp, GET/PATCH
-  /api/platform. Prerequisite Phase 0 PASS. Chưa aiogram delivery. Verify
-  checklist Phase 1. Commit Phase 1.
+  Phase 1 only. Khung: SQLite, config platform.*, hook stub, GET/PATCH
+  /api/platform. KHÔNG thêm tab Platform vào index.html. UI → Phase W. Commit Phase 1.
+
+================================================================================
+PHASE W — PROMPT NGẮN SẴN COPY
+================================================================================
+
+  Phase W only. Tạo web admin Research Platform RIÊNG: /admin/platform,
+  sidebar ( học layout clender ), web/static/platform/{css,js,index.html}.
+  Fetch /api/platform/*. CẤM thêm sub-tab vào index.html v28 — chỉ thêm link
+  "Research Admin". Trang: Cấu hình, Bots, Archive. Prerequisite Phase 1 PASS.
+  Commit Phase W.
 
 ================================================================================
 PHASE 2 — PROMPT NGẮN SẴN COPY
@@ -357,14 +463,16 @@ PHASE 5 — PROMPT NGẮN SẴN COPY
 BẢNG PHỤ THUỘC PHASE
 ================================================================================
 
-  Phase 0 ──► Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4a ──► Phase 5
-                                      │              │
-                                      │         Phase 4b ──┘
-                                      │              │
-                                      └──────── Phase 4c (sau 3, song song 4a OK)
+  Phase 0 ──► Phase 1 ──► Phase W ──► Phase 2 ──► Phase 3 ──► Phase 4a ──► Phase 5
+                              │              │
+                              │         Phase 4b ──┘
+                              │              │
+                              └──────── Phase 4c
+
+  Phase W nên xong TRƯỚC khi Phase 4 (nhiều màn web) — tránh AI vá index.html.
 
   Không được: Phase 0 → Phase 5
-  Không được: Phase 2 + Phase 4b cùng một prompt (trừ khi 2 đã PASS và chỉ fix 4b)
+  Không được: thêm UI Platform vào index.html thay vì Phase W
 
 ================================================================================
 KHI AI TRẢ LỜI XONG 1 PHASE — BẠN REVIEW
