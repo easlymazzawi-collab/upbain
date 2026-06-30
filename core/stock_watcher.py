@@ -7,7 +7,6 @@ from typing import Awaitable, Callable
 from core.config_store import load_auto_config, topic_key
 from core.runtime import get_runtime
 from core.settings import system_armed
-from core.stock_watcher import require_full_batch
 from core.up_confirm import expire_pending_near_schedule, is_pending
 
 log = logging.getLogger("stock_watcher")
@@ -15,6 +14,10 @@ log = logging.getLogger("stock_watcher")
 RunTopicFn = Callable[..., Awaitable[bool]]
 _last_wait_notify: dict[str, int] = {}
 _NOTIFY_COOLDOWN = 1800
+
+
+def require_full_batch() -> bool:
+    return bool(load_auto_config().get("global", {}).get("require_full_batch", True))
 
 
 def poll_interval_sec() -> int:
