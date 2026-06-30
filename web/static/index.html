@@ -469,6 +469,8 @@
       if (Array.isArray(plainChannelCache) && plainChannelCache.length) return plainChannelCache;
       return Array.isArray(ch) ? ch : (plainChannelCache || []);
     }
+
+    function authHeadersOnly() {
       const t = $("token").value.trim();
       const h = {};
       if (t) h["X-Token"] = t;

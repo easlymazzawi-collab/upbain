@@ -1,5 +1,6 @@
 """Unpin old + pin next content marker in forum topic."""
 
+import asyncio
 import logging
 
 from pyrogram.errors import FloodWait, RPCError
@@ -7,34 +8,43 @@ from pyrogram.errors import FloodWait, RPCError
 log = logging.getLogger("pin_manager")
 
 
+def _flood_wait_seconds(err: BaseException) -> int:
+    for attr in ("value", "x", "seconds"):
+        v = getattr(err, attr, None)
+        if v is not None:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                pass
+    return 3
+
+
+def _pinned_filter():
+    try:
+        from pyrogram import enums
+        return enums.MessagesFilter.PINNED
+    except Exception:
+        return "pinned"
+
+
 async def get_pinned_message_id(client, chat_id: int, topic_id: int | None) -> int | None:
     kw: dict = {}
     if topic_id and int(topic_id) != 0:
         kw["reply_to_message_id"] = int(topic_id)
+    filt = _pinned_filter()
     try:
         async for msg in client.search_messages(
             chat_id,
             query="",
-            filter="pinned",
+            filter=filt,
             limit=5,
             **kw,
         ):
             if msg and not msg.empty:
                 return msg.id
-    except TypeError:
-        try:
-            from pyrogram import enums
-            async for msg in client.search_messages(
-                chat_id,
-                query="",
-                filter=enums.MessagesFilter.PINNED,
-                limit=5,
-                **kw,
-            ):
-                if msg and not msg.empty:
-                    return msg.id
-        except Exception as e:
-            log.warning("search pinned fallback fail: %s", e)
+    except FloodWait as e:
+        await asyncio.sleep(_flood_wait_seconds(e) + 1)
+        return await get_pinned_message_id(client, chat_id, topic_id)
     except Exception as e:
         log.warning("get_pinned_message_id: %s", e)
     return None
@@ -47,8 +57,7 @@ async def unpin_message(client, chat_id: int, msg_id: int | None) -> None:
         await client.unpin_chat_message(chat_id, msg_id)
         log.info("Unpinned chat=%s msg=%s", chat_id, msg_id)
     except FloodWait as e:
-        import asyncio
-        await asyncio.sleep(e.value + 1)
+        await asyncio.sleep(_flood_wait_seconds(e) + 1)
         await client.unpin_chat_message(chat_id, msg_id)
     except RPCError as e:
         log.warning("unpin fail chat=%s msg=%s: %s", chat_id, msg_id, e)
@@ -59,8 +68,7 @@ async def pin_message(client, chat_id: int, msg_id: int) -> None:
         await client.pin_chat_message(chat_id, msg_id, disable_notification=True)
         log.info("Pinned chat=%s msg=%s", chat_id, msg_id)
     except FloodWait as e:
-        import asyncio
-        await asyncio.sleep(e.value + 1)
+        await asyncio.sleep(_flood_wait_seconds(e) + 1)
         await client.pin_chat_message(chat_id, msg_id, disable_notification=True)
     except RPCError as e:
         log.warning("pin fail chat=%s msg=%s: %s", chat_id, msg_id, e)
