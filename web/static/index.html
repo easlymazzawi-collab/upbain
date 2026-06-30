@@ -385,48 +385,112 @@
     </section>
 
     <section id="platform" class="panel">
+      <div class="tabs" style="margin-bottom:1rem">
+        <button class="active" type="button" onclick="platSubTab('cfg',this)">Cấu hình</button>
+        <button type="button" onclick="platSubTab('bots',this)">Bots (10)</button>
+        <button type="button" onclick="platSubTab('archive',this)">Archive</button>
+        <button type="button" onclick="platSubTab('vip',this)">VIP & Stars</button>
+        <button type="button" onclick="platSubTab('gift',this)">Giftcode</button>
+        <button type="button" onclick="platSubTab('ads',this)">Ads</button>
+        <button type="button" onclick="platSubTab('share',this)">Share</button>
+        <button type="button" onclick="platSubTab('users',this)">Users</button>
+      </div>
+      <div id="plat-cfg" class="plat-sub active">
       <div class="card">
-        <h2>Research Platform P0</h2>
-        <p class="hint">Index link + bot /day — không forward vào forum backup. Bật platform rồi restart tool để chạy bot delivery.</p>
+        <h2>Research Platform</h2>
+        <p class="hint">P0–P5: index, multi-bot, VIP/Stars, catalog, share, rollup. Restart tool sau khi đổi token.</p>
         <label><input type="checkbox" id="plat-enabled" /> Bật Research Platform</label>
         <div class="row" style="margin-top:0.75rem">
           <label><input type="checkbox" id="plat-publish" /> Up kênh</label>
           <label><input type="checkbox" id="plat-index" /> Archive index</label>
           <label><input type="checkbox" id="plat-delivery" /> Bot delivery</label>
+          <label><input type="checkbox" id="plat-vip-req" /> Bắt buộc VIP xem archive</label>
         </div>
         <div class="row">
           <div><label>Delay gửi bot (giây)</label><input id="plat-delay" type="number" step="0.5" min="0.5" value="1" /></div>
-          <div><label>Group admin notify ID</label><input id="plat-notify-group" type="number" placeholder="-100..." /></div>
+          <div><label>Group admin notify</label><input id="plat-notify-group" type="number" placeholder="-100..." /></div>
         </div>
         <div class="row">
           <div><label>Admin forum ID</label><input id="plat-admin-forum" type="number" /></div>
-          <div><label>Topic ZIP backup ID</label><input id="plat-zip-topic" type="number" /></div>
+          <div><label>Topic ZIP</label><input id="plat-zip-topic" type="number" /></div>
+          <div><label>Topic duyệt tên</label><input id="plat-contrib-topic" type="number" /></div>
+        </div>
+        <div class="row">
+          <div><label>Membership channel ID</label><input id="plat-mem-ch" type="number" /></div>
+          <div><label>@channel username</label><input id="plat-mem-un" placeholder="mychannel" /></div>
+        </div>
+        <label><input type="checkbox" id="plat-share-ev" /> Bật đua top share</label>
+        <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+          <button class="primary" onclick="savePlatform()">Lưu Platform</button>
+          <button class="secondary" onclick="downloadPlatformBackup()">Backup ZIP</button>
+          <button class="secondary" onclick="runRollup()">Rollup tháng</button>
+          <button class="secondary" onclick="recheckAds()">Recheck ads</button>
+          <button class="secondary" onclick="restartPlatformBots()">Restart all bots</button>
         </div>
       </div>
+      </div>
+      <div id="plat-bots" class="plat-sub" style="display:none">
       <div class="card">
-        <h2>Bot delivery (1 bot P0)</h2>
-        <label>Bot token</label>
-        <input id="plat-bot-token" type="password" placeholder="123456:ABC... (để trống = giữ cũ)" />
-        <p class="hint" id="plat-bot-token-hint">—</p>
-        <div class="row">
-          <div><label>@username</label><input id="plat-bot-user" placeholder="mybot" /></div>
-          <div><label>Branch</label>
-            <select id="plat-bot-branch"><option value="ads">ads</option><option value="plain">plain</option></select>
-          </div>
-        </div>
-        <div class="row">
-          <div><label>Forum nguồn ID</label><input id="plat-src-forum" type="number" /></div>
-          <div><label>Topic nguồn ID</label><input id="plat-src-topic" type="number" /></div>
-        </div>
-        <div class="row">
-          <div><label>Catalog topic ID (bot)</label><input id="plat-catalog-topic" type="number" /></div>
-        </div>
-        <button class="primary" onclick="savePlatform()">Lưu Platform</button>
-        <button class="secondary" onclick="downloadPlatformBackup()">Backup ZIP</button>
+        <h2>Bots (tối đa 10)</h2>
+        <div id="plat-bots-list"></div>
+        <button class="secondary" onclick="addPlatformBot()">+ Thêm bot</button>
+        <button class="primary" onclick="savePlatformBots()">Lưu bots</button>
+        <div id="plat-bot-status" class="hint" style="margin-top:0.75rem"></div>
       </div>
+      </div>
+      <div id="plat-archive" class="plat-sub" style="display:none">
       <div class="card">
         <h2>Archive ngày</h2>
-        <div id="plat-days-table"><p class="hint">Chưa có ngày nào.</p></div>
+        <div id="plat-days-table"><p class="hint">Chưa có ngày.</p></div>
+      </div>
+      </div>
+      <div id="plat-vip" class="plat-sub" style="display:none">
+      <div class="card">
+        <h2>VIP plans</h2>
+        <div id="plat-vip-plans"></div>
+        <h3 style="font-size:0.9rem;margin-top:1rem">Gán VIP tay</h3>
+        <div class="row">
+          <div><label>User ID</label><input id="plat-vip-uid" type="number" /></div>
+          <div><label>Plan ID</label><input id="plat-vip-planid" type="number" /></div>
+        </div>
+        <button class="secondary" onclick="grantVipManual()">Gán VIP</button>
+      </div>
+      </div>
+      <div id="plat-gift" class="plat-sub" style="display:none">
+      <div class="card">
+        <h2>Giftcode</h2>
+        <div class="row">
+          <div><label>Plan ID</label><input id="plat-gift-plan" type="number" value="1" /></div>
+          <div><label>Số lượng</label><input id="plat-gift-count" type="number" value="5" /></div>
+          <div><label>Prefix</label><input id="plat-gift-prefix" placeholder="VIP" /></div>
+        </div>
+        <button class="primary" onclick="createGiftCodes()">Tạo giftcode</button>
+        <div id="plat-gift-list" style="margin-top:1rem"></div>
+      </div>
+      </div>
+      <div id="plat-ads" class="plat-sub" style="display:none">
+      <div class="card">
+        <h2>Ads alias</h2>
+        <div class="row">
+          <div><label>Alias</label><input id="plat-ads-alias" /></div>
+          <div><label>Msg IDs (csv)</label><input id="plat-ads-ids" placeholder="123,456" /></div>
+          <div><label>Chat ID</label><input id="plat-ads-chat" type="number" /></div>
+        </div>
+        <button class="primary" onclick="saveAdsAlias()">Lưu alias</button>
+        <div id="plat-ads-list" style="margin-top:1rem"></div>
+      </div>
+      </div>
+      <div id="plat-share" class="plat-sub" style="display:none">
+      <div class="card">
+        <h2>Share leaderboard</h2>
+        <div id="plat-share-lb"></div>
+      </div>
+      </div>
+      <div id="plat-users" class="plat-sub" style="display:none">
+      <div class="card">
+        <h2>Users</h2>
+        <div id="plat-users-table"></div>
+      </div>
       </div>
     </section>
 
@@ -1771,75 +1835,149 @@
     }
 
     let platformFormDirty = false;
+    let platformBotsDraft = [];
 
-    function renderPlatform(plat, days) {
+    function platSubTab(name, btn) {
+      document.querySelectorAll(".plat-sub").forEach(el => el.style.display = "none");
+      const el = $("plat-" + name);
+      if (el) el.style.display = "block";
+      if (btn && btn.parentElement) {
+        btn.parentElement.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+      }
+      if (name === "vip") loadVipPlans();
+      if (name === "gift") loadGiftCodes();
+      if (name === "ads") loadAdsList();
+      if (name === "share") loadShareLb();
+      if (name === "users") loadPlatformUsers();
+    }
+
+    function renderPlatformBots(bots) {
+      platformBotsDraft = (bots || []).map(b => ({ ...b }));
+      if (!platformBotsDraft.length) {
+        platformBotsDraft = [{ username: "", branch: "ads", enabled: true, queue_order: 0 }];
+      }
+      $("plat-bots-list").innerHTML = platformBotsDraft.map((b, i) => `
+        <div class="topic-row" data-bot-idx="${i}">
+          <div class="row">
+            <div><label>Bot #${i + 1} @user</label><input class="pb-user" value="${b.username || ""}" /></div>
+            <div><label>Token</label><input class="pb-token" type="password" placeholder="${b.has_token ? "giữ cũ" : "token"}" /></div>
+            <div><label>Queue</label><input class="pb-order" type="number" value="${b.queue_order ?? i}" /></div>
+          </div>
+          <div class="row">
+            <div><label>Forum nguồn</label><input class="pb-forum" type="number" value="${b.source_forum_id || ""}" /></div>
+            <div><label>Topic nguồn</label><input class="pb-topic" type="number" value="${b.source_topic_id ?? ""}" /></div>
+            <div><label>Catalog topic</label><input class="pb-cat" type="number" value="${b.catalog_topic_id || ""}" /></div>
+          </div>
+          <label><input class="pb-en" type="checkbox" ${b.enabled !== false ? "checked" : ""} /> Enabled</label>
+        </div>`).join("");
+    }
+
+    function renderPlatform(plat, days, botStatus) {
       if (panelEditing("platform", platformFormDirty)) return;
       plat = plat || {};
       $("plat-enabled").checked = !!plat.enabled;
       $("plat-publish").checked = plat.publish_channels !== false;
       $("plat-index").checked = plat.archive_index !== false;
       $("plat-delivery").checked = plat.bot_delivery !== false;
+      $("plat-vip-req").checked = !!plat.require_vip_for_archive;
       $("plat-delay").value = plat.delivery_delay_sec ?? 1;
       $("plat-notify-group").value = plat.admin_notify_group_id || "";
       $("plat-admin-forum").value = plat.admin_forum_id || "";
       $("plat-zip-topic").value = plat.admin_zip_topic_id || "";
-      const bot = plat.bot || {};
-      $("plat-bot-user").value = bot.username || "";
-      $("plat-bot-branch").value = bot.branch || "ads";
-      $("plat-src-forum").value = bot.source_forum_id || "";
-      $("plat-src-topic").value = bot.source_topic_id || "";
-      $("plat-catalog-topic").value = bot.catalog_topic_id || "";
-      $("plat-bot-token-hint").textContent = bot.has_token
-        ? "✓ Đã có bot token — restart tool sau khi đổi"
-        : "Nhập token bot user-facing (@BotFather)";
+      $("plat-contrib-topic").value = plat.admin_contrib_topic_id || "";
+      $("plat-mem-ch").value = plat.membership_channel_id || "";
+      $("plat-mem-un").value = plat.membership_channel_username || "";
+      $("plat-share-ev").checked = !!(plat.share_event && plat.share_event.enabled);
+      renderPlatformBots(plat.bots || (plat.bot ? [plat.bot] : []));
+      if (botStatus && botStatus.length) {
+        $("plat-bot-status").textContent = botStatus.map(b =>
+          `@${b.username || b.key}: ${b.running ? "online" : "offline"}`
+        ).join(" · ");
+      }
       const rows = days || [];
       if (!rows.length) {
-        $("plat-days-table").innerHTML = "<p class=\"hint\">Chưa có ngày — chạy auto up kênh để ghi index.</p>";
+        $("plat-days-table").innerHTML = "<p class=\"hint\">Chưa có ngày.</p>";
         return;
       }
-      let html = "<table><tr><th>Ngày</th><th>Trạng thái</th><th>Lượt</th><th></th></tr>";
+      let html = "<table><tr><th>Ngày</th><th>Bot</th><th>Trạng thái</th><th>Lượt</th><th></th></tr>";
       for (const d of rows) {
-        html += `<tr><td>${d.topic_label}</td><td><span class="badge">${d.status}</span></td><td>${d.runs_count || 0}</td>
-          <td><button class="secondary" onclick="publishPlatformDay(${d.id})">Publish</button></td></tr>`;
+        html += `<tr><td>${d.topic_label}</td><td>${d.bot_id}</td><td><span class="badge">${d.status}</span></td><td>${d.runs_count || 0}</td>
+          <td><button class="secondary" onclick="publishPlatformDay(${d.id})">Publish</button>
+          <button class="secondary" onclick="closePlatformDay(${d.id})">Đóng</button></td></tr>`;
       }
       html += "</table>";
       $("plat-days-table").innerHTML = html;
     }
 
-    async function savePlatform() {
-      platformFormDirty = true;
-      bumpEditPause();
-      const body = {
+    function collectPlatformPatch(extra = {}) {
+      return {
         enabled: $("plat-enabled").checked,
         publish_channels: $("plat-publish").checked,
         archive_index: $("plat-index").checked,
         bot_delivery: $("plat-delivery").checked,
+        require_vip_for_archive: $("plat-vip-req").checked,
         delivery_delay_sec: parseFloat($("plat-delay").value) || 1,
         admin_notify_group_id: $("plat-notify-group").value ? +$("plat-notify-group").value : null,
         admin_forum_id: $("plat-admin-forum").value ? +$("plat-admin-forum").value : null,
         admin_zip_topic_id: $("plat-zip-topic").value ? +$("plat-zip-topic").value : null,
-        bot: {
-          username: $("plat-bot-user").value.trim(),
-          branch: $("plat-bot-branch").value,
-          source_forum_id: $("plat-src-forum").value ? +$("plat-src-forum").value : null,
-          source_topic_id: $("plat-src-topic").value ? +$("plat-src-topic").value : null,
-          catalog_topic_id: $("plat-catalog-topic").value ? +$("plat-catalog-topic").value : null,
-        },
+        admin_contrib_topic_id: $("plat-contrib-topic").value ? +$("plat-contrib-topic").value : null,
+        membership_channel_id: $("plat-mem-ch").value ? +$("plat-mem-ch").value : null,
+        membership_channel_username: $("plat-mem-un").value.trim(),
+        share_event: { enabled: $("plat-share-ev").checked },
+        ...extra,
       };
-      const tok = $("plat-bot-token").value.trim();
-      if (tok) body.bot.token = tok;
+    }
+
+    function collectBotsFromDom() {
+      return [...document.querySelectorAll("#plat-bots-list .topic-row")].map((row, i) => {
+        const tok = row.querySelector(".pb-token").value.trim();
+        const b = {
+          username: row.querySelector(".pb-user").value.trim(),
+          source_forum_id: row.querySelector(".pb-forum").value ? +row.querySelector(".pb-forum").value : null,
+          source_topic_id: row.querySelector(".pb-topic").value !== "" ? +row.querySelector(".pb-topic").value : null,
+          catalog_topic_id: row.querySelector(".pb-cat").value ? +row.querySelector(".pb-cat").value : null,
+          queue_order: +(row.querySelector(".pb-order").value || i),
+          branch: "ads",
+          enabled: row.querySelector(".pb-en").checked,
+        };
+        if (tok) b.token = tok;
+        return b;
+      });
+    }
+
+    async function savePlatform() {
+      platformFormDirty = true;
+      bumpEditPause();
+      const body = collectPlatformPatch({ bots: collectBotsFromDom() });
       try {
         await api("/platform", { method: "PATCH", body: JSON.stringify(body) });
         platformFormDirty = false;
-        toast("Đã lưu Platform — restart tool nếu đổi bot token");
+        toast("Đã lưu Platform — restart nếu đổi token");
         scheduleRefreshAfterEdit();
       } catch (e) { toast("Lỗi: " + e.message); }
+    }
+
+    async function savePlatformBots() { await savePlatform(); }
+
+    function addPlatformBot() {
+      if (platformBotsDraft.length >= 10) { toast("Tối đa 10 bot"); return; }
+      platformBotsDraft.push({ username: "", enabled: true, queue_order: platformBotsDraft.length });
+      renderPlatformBots(platformBotsDraft);
     }
 
     async function publishPlatformDay(id) {
       try {
         await api("/platform/days/" + id + "/publish", { method: "POST" });
-        toast("Đã publish ngày " + id);
+        toast("Publish OK");
+        scheduleRefreshAfterEdit();
+      } catch (e) { toast("Lỗi: " + e.message); }
+    }
+
+    async function closePlatformDay(id) {
+      try {
+        await api("/platform/days/" + id + "/close", { method: "POST" });
+        toast("Đóng ngày OK");
         scheduleRefreshAfterEdit();
       } catch (e) { toast("Lỗi: " + e.message); }
     }
@@ -1853,8 +1991,126 @@
         a.href = URL.createObjectURL(blob);
         a.download = "backup_platform.zip";
         a.click();
-        toast("Đã tải backup ZIP");
+        toast("Đã tải backup");
       } catch (e) { toast("Backup lỗi: " + e.message); }
+    }
+
+    async function restartPlatformBots() {
+      try {
+        await api("/platform/bots/restart", { method: "POST" });
+        toast("Đã gửi restart all bots");
+      } catch (e) { toast("Lỗi: " + e.message); }
+    }
+
+    async function recheckAds() {
+      try {
+        const r = await api("/platform/ads/recheck", { method: "POST" });
+        toast("Recheck: " + (r.updated || 0) + " cập nhật");
+      } catch (e) { toast("Lỗi: " + e.message); }
+    }
+
+    async function runRollup() {
+      try {
+        const r = await api("/platform/rollup", { method: "POST" });
+        toast("Rollup: " + (r.results || []).length + " bot");
+      } catch (e) { toast("Lỗi: " + e.message); }
+    }
+
+    async function loadVipPlans() {
+      try {
+        const r = await api("/platform/vip/plans");
+        $("plat-vip-plans").innerHTML = (r.plans || []).map(p =>
+          `<div class="post-row"><span>${p.id}. ${p.name}</span><span>${p.stars_price}⭐ · ${p.plan_type}</span></div>`
+        ).join("") || "<p class=\"hint\">Chưa có plan</p>";
+      } catch (e) { $("plat-vip-plans").textContent = e.message; }
+    }
+
+    async function grantVipManual() {
+      try {
+        await api("/platform/vip/grant", {
+          method: "POST",
+          body: JSON.stringify({ user_id: +$("plat-vip-uid").value, plan_id: +$("plat-vip-planid").value }),
+        });
+        toast("Đã gán VIP");
+      } catch (e) { toast("Lỗi: " + e.message); }
+    }
+
+    async function createGiftCodes() {
+      try {
+        const r = await api("/platform/giftcodes", {
+          method: "POST",
+          body: JSON.stringify({
+            plan_id: +$("plat-gift-plan").value,
+            count: +$("plat-gift-count").value,
+            prefix: $("plat-gift-prefix").value,
+          }),
+        });
+        toast("Tạo: " + (r.codes || []).join(", "));
+        loadGiftCodes();
+      } catch (e) { toast("Lỗi: " + e.message); }
+    }
+
+    async function loadGiftCodes() {
+      try {
+        const r = await api("/platform/giftcodes");
+        $("plat-gift-list").innerHTML = (r.codes || []).map(c =>
+          `<div class="post-row"><code>${c.code}</code> · ${c.used_count}/${c.max_uses} · plan ${c.plan_id}</div>`
+        ).join("") || "<p class=\"hint\">Chưa có mã</p>";
+      } catch (e) {}
+    }
+
+    async function saveAdsAlias() {
+      const ids = ($("plat-ads-ids").value || "").split(",").map(s => +s.trim()).filter(Boolean);
+      try {
+        await api("/platform/ads", {
+          method: "POST",
+          body: JSON.stringify({
+            alias: $("plat-ads-alias").value,
+            src_msg_ids: ids,
+            src_chat_id: $("plat-ads-chat").value ? +$("plat-ads-chat").value : null,
+          }),
+        });
+        toast("Lưu alias OK");
+        loadAdsList();
+      } catch (e) { toast("Lỗi: " + e.message); }
+    }
+
+    async function loadAdsList() {
+      try {
+        const r = await api("/platform/ads");
+        $("plat-ads-list").innerHTML = (r.contracts || []).map(c =>
+          `<div class="post-row"><b>${c.alias}</b> · ${c.active ? "active" : "terminated"}
+          <button class="secondary" onclick="terminateAds('${c.alias}')">Chấm dứt</button></div>`
+        ).join("") || "<p class=\"hint\">Chưa có alias</p>";
+      } catch (e) {}
+    }
+
+    async function terminateAds(alias) {
+      try {
+        await api("/platform/ads/" + encodeURIComponent(alias) + "/terminate", { method: "POST" });
+        loadAdsList();
+      } catch (e) { toast("Lỗi: " + e.message); }
+    }
+
+    async function loadShareLb() {
+      try {
+        const r = await api("/platform/share/leaderboard");
+        $("plat-share-lb").innerHTML = (r.leaderboard || []).map(row =>
+          `<div class="post-row">${row.rank}. ${row.display} — ${row.clicks} click</div>`
+        ).join("") || "<p class=\"hint\">Chưa có dữ liệu / event tắt</p>";
+      } catch (e) {}
+    }
+
+    async function loadPlatformUsers() {
+      try {
+        const r = await api("/platform/users");
+        const u = r.users || [];
+        $("plat-users-table").innerHTML = u.length
+          ? "<table><tr><th>ID</th><th>User</th><th>VIP</th><th>Tier</th></tr>" +
+            u.map(x => `<tr><td>${x.telegram_id}</td><td>@${x.username || "—"}</td><td>${x.is_vip ? "✅" : "—"}</td><td>${x.tier || ""}</td></tr>`).join("") +
+            "</table>"
+          : "<p class=\"hint\">Chưa có user</p>";
+      } catch (e) {}
     }
 
     function renderTimeChips() {
@@ -1889,7 +2145,7 @@
           renderPlainPool(plainCh, snap.plain_folders || []);
           renderChannelsPage(channels, snap.folders || []);
           renderGlobal(snap.config?.global || {});
-          renderPlatform(snap.config?.platform || {}, snap.platform_days || []);
+          renderPlatform(snap.config?.platform || {}, snap.platform_days || [], snap.platform_bot_status || []);
           updateRefreshHint(false);
         }
         if (snap.runtime?.next_run_at && !panelEditing("schedule", scheduleFormDirty)) {

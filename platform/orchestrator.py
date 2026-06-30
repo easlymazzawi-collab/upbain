@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from core.link_parser import msg_link
+from platform.ads import apply_aliases_to_items
 from platform.archive_index import (
     find_bot_by_source,
     get_day_by_label,
@@ -14,7 +15,7 @@ from platform.archive_index import (
     replace_day_items,
     sync_bot_from_config,
 )
-from platform.config import layer_enabled, load_platform_config
+from platform.config import get_bot_for_source, layer_enabled, list_bots_config, load_platform_config
 from platform.dates import topic_label_vn, today_vn
 
 log = logging.getLogger("platform.orchestrator")
@@ -77,25 +78,32 @@ async def index_after_channel_forward(
     Trả metadata day nếu thành công.
     """
     plat = load_platform_config()
-    if not plat.get("enabled") or not layer_enabled("archive_index", plat.get("bot") or {}):
-        return None
-    if not sequence:
+    if not plat.get("enabled"):
         return None
 
-    bot_cfg = plat.get("bot") or {}
+    bot_cfg = get_bot_for_source(src_chat_id, topic_id, branch, plat)
     bot_row = find_bot_by_source(src_chat_id, topic_id, branch)
-    if not bot_row:
+    if bot_cfg and not bot_row:
+        bot_id = sync_bot_from_config(bot_cfg)
+    elif bot_row:
+        bot_id = bot_row["id"]
+        bot_cfg = bot_cfg or {}
+    else:
+        legacy = plat.get("bot") or {}
         if (
-            bot_cfg.get("source_forum_id") == src_chat_id
-            and bot_cfg.get("source_topic_id") == topic_id
-            and bot_cfg.get("branch", "ads") == branch
+            legacy.get("source_forum_id") == src_chat_id
+            and legacy.get("source_topic_id") == topic_id
         ):
-            bot_id = sync_bot_from_config(bot_cfg)
+            bot_id = sync_bot_from_config(legacy)
+            bot_cfg = legacy
         else:
             log.info("platform: no bot mapped for %s:%s branch=%s", src_chat_id, topic_id, branch)
             return None
-    else:
-        bot_id = bot_row["id"]
+
+    if not layer_enabled("archive_index", bot_cfg):
+        return None
+    if not sequence:
+        return None
 
     day = get_or_create_day(bot_id)
     content_chat = src_chat_id
@@ -104,6 +112,7 @@ async def index_after_channel_forward(
         content_chat=content_chat,
         atomic_posts=atomic_posts,
     )
+    items = apply_aliases_to_items(items)
     count = replace_day_items(day["id"], items, channel_sent=True)
     if next_pin_msg_id:
         from platform.db import connect
@@ -113,7 +122,13 @@ async def index_after_channel_forward(
                 (next_pin_msg_id, day["id"]),
             )
 
-    # Auto publish P0 — user có thể xem ngay qua bot
+    # Recheck ads sau index
+    try:
+        from platform.ads import recheck_ads_aliases_for_day
+        recheck_ads_aliases_for_day(day["id"])
+    except Exception as e:
+        log.warning("recheck ads: %s", e)
+
     publish_day(day["id"])
     day_label = topic_label_vn(today_vn())
     username = bot_cfg.get("username") or ""

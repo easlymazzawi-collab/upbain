@@ -231,6 +231,7 @@ class PlatformBotIn(BaseModel):
     publish_channels: bool = True
     archive_index: bool = True
     bot_delivery: bool = True
+    queue_order: int = 0
 
 
 class PlatformIn(BaseModel):
@@ -240,12 +241,48 @@ class PlatformIn(BaseModel):
     bot_delivery: bool | None = None
     channel_first: bool | None = None
     delivery_delay_sec: float | None = None
+    orchestrator_running: bool | None = None
+    require_vip_for_archive: bool | None = None
     admin_forum_id: int | None = None
     admin_zip_topic_id: int | None = None
+    admin_contrib_topic_id: int | None = None
     admin_notify_group_id: int | None = None
     membership_channel_id: int | None = None
+    membership_channel_username: str | None = None
     backup_forum_id: int | None = None
+    share_event: dict | None = None
     bot: PlatformBotIn | None = None
+    bots: list[PlatformBotIn] | None = None
+
+
+class VipPlanIn(BaseModel):
+    plan_type: str
+    name: str
+    stars_price: int = 0
+    duration_days: int | None = None
+    enabled: bool = True
+    sort_order: int = 0
+
+
+class VipGrantIn(BaseModel):
+    user_id: int
+    plan_id: int
+
+
+class GiftCodeIn(BaseModel):
+    plan_id: int
+    count: int = 1
+    prefix: str = ""
+    max_uses: int = 1
+    expires_at: str | None = None
+    code: str | None = None
+
+
+class AdsContractIn(BaseModel):
+    alias: str
+    src_msg_ids: list[int] = Field(default_factory=list)
+    src_chat_id: int | None = None
+    active: bool = True
 
 
 def _repair_imported_data(cfg: dict) -> dict:
@@ -287,21 +324,27 @@ def _snapshot() -> dict[str, Any]:
     all_task = cfg.get("all_task") or {}
     plain_task = cfg.get("plain_task") or {}
     plat = cfg.get("platform") or {}
-    safe_plat = {**plat}
-    bot = dict(safe_plat.get("bot") or {})
-    if bot.get("token"):
-        bot["has_token"] = True
-        bot["token"] = ""
+    from platform.config import list_bots_config, mask_bots_for_api
+
+    safe_plat = {k: v for k, v in plat.items() if k not in ("bot", "bots")}
+    safe_plat["bots"] = mask_bots_for_api(list_bots_config(plat))
+    legacy = dict(plat.get("bot") or {})
+    if legacy.get("token"):
+        legacy["has_token"] = True
+        legacy["token"] = ""
     else:
-        bot["has_token"] = False
-    safe_plat["bot"] = bot
+        legacy["has_token"] = bool(legacy.get("token"))
+    safe_plat["bot"] = legacy
     platform_days: list = []
+    bot_status_list: list = []
     try:
-        from platform.archive_index import list_days, sync_bot_from_config
+        from platform.archive_index import list_days, sync_all_bots_from_config
+        from platform.bot_manager import bot_status
 
         if plat.get("enabled"):
-            sync_bot_from_config(bot)
+            sync_all_bots_from_config(plat)
             platform_days = list_days(limit=30)
+            bot_status_list = bot_status()
     except Exception:
         pass
     return {
@@ -340,6 +383,7 @@ def _snapshot() -> dict[str, Any]:
             "platform_enabled": bool(plat.get("enabled")),
         },
         "platform_days": platform_days,
+        "platform_bot_status": bot_status_list,
         "ts": int(time.time()),
     }
 
@@ -993,56 +1037,223 @@ async def import_apply(
 
 
 def _mask_platform(cfg: dict) -> dict:
+    from platform.config import list_bots_config, mask_bots_for_api
+
     plat = dict(cfg.get("platform") or {})
+    plat["bots"] = mask_bots_for_api(list_bots_config(plat))
     bot = dict(plat.get("bot") or {})
     if bot.get("token"):
         bot["has_token"] = True
         bot["token"] = ""
-    else:
-        bot["has_token"] = bool(bot.get("has_token"))
     plat["bot"] = bot
     return plat
 
 
 @app.get("/api/platform")
 async def get_platform(_=Depends(_auth)):
-    from platform.config import load_platform_config
-    from platform.archive_index import list_days, sync_bot_from_config
+    from platform.config import load_platform_config, mask_bots_for_api, list_bots_config
+    from platform.archive_index import list_days, sync_all_bots_from_config
+    from platform.bot_manager import bot_status
 
     plat = load_platform_config()
-    bot = plat.get("bot") or {}
     days = []
     if plat.get("enabled"):
         try:
-            bot_id = sync_bot_from_config(bot)
-            days = list_days(bot_id=bot_id, limit=60)
+            sync_all_bots_from_config(plat)
+            days = list_days(limit=60)
         except Exception:
             pass
     safe = _mask_platform({"platform": plat})["platform"]
-    return {"platform": safe, "days": days}
+    return {
+        "platform": safe,
+        "days": days,
+        "bot_status": bot_status(),
+        "queue": __import__("platform.run_queue", fromlist=["queue_status"]).queue_status(),
+    }
 
 
 @app.patch("/api/platform")
 async def patch_platform(body: PlatformIn, _=Depends(_auth)):
     from platform.config import load_platform_config, save_platform_config
-    from platform.archive_index import sync_bot_from_config
+    from platform.archive_index import sync_all_bots_from_config
 
     plat = load_platform_config()
     data = body.model_dump(exclude_unset=True)
     bot_patch = data.pop("bot", None)
+    bots_patch = data.pop("bots", None)
     for k, v in data.items():
         plat[k] = v
-    if bot_patch:
+    if bots_patch is not None:
+        merged = []
+        existing = plat.get("bots") or []
+        for i, bp in enumerate(bots_patch):
+            cur = dict(existing[i]) if i < len(existing) else {}
+            token = bp.pop("token", None) if isinstance(bp, dict) else None
+            if isinstance(bp, dict):
+                cur.update({k: v for k, v in bp.items() if v is not None or k in bp})
+            if token:
+                cur["token"] = token
+            merged.append(cur)
+        plat["bots"] = merged
+        if merged:
+            plat["bot"] = merged[0]
+    elif bot_patch:
         cur = plat.setdefault("bot", {})
-        token = bot_patch.pop("token", None)
-        cur.update({k: v for k, v in bot_patch.items() if v is not None or k in bot_patch})
+        token = bot_patch.pop("token", None) if isinstance(bot_patch, dict) else None
+        if isinstance(bot_patch, dict):
+            cur.update({k: v for k, v in bot_patch.items() if v is not None or k in bot_patch})
         if token:
             cur["token"] = token
+        bots = plat.get("bots") or []
+        if bots:
+            bots[0] = {**bots[0], **cur}
+        else:
+            plat["bots"] = [cur]
     save_platform_config(plat)
     if plat.get("enabled"):
-        sync_bot_from_config(plat.get("bot") or {})
+        sync_all_bots_from_config(plat)
     append_log("info", "Cập nhật Research Platform config")
     return {"ok": True, "platform": _mask_platform({"platform": plat})["platform"]}
+
+
+@app.post("/api/platform/bots/restart")
+async def platform_restart_bots(username: str | None = None, _=Depends(_auth)):
+    from platform.bot_manager import restart_bot
+
+    try:
+        r = await restart_bot(username)
+    except Exception as e:
+        raise HTTPException(500, str(e)) from e
+    append_log("info", f"Restart platform bots: {r}")
+    return {"ok": True, **r}
+
+
+@app.get("/api/platform/vip/plans")
+async def platform_vip_plans(_=Depends(_auth)):
+    from platform.vip import list_vip_plans
+    return {"plans": list_vip_plans(enabled_only=False)}
+
+
+@app.post("/api/platform/vip/plans")
+async def platform_vip_plan_create(body: VipPlanIn, _=Depends(_auth)):
+    from platform.vip import upsert_vip_plan
+    return upsert_vip_plan(None, **body.model_dump())
+
+
+@app.patch("/api/platform/vip/plans/{plan_id}")
+async def platform_vip_plan_patch(plan_id: int, body: VipPlanIn, _=Depends(_auth)):
+    from platform.vip import upsert_vip_plan
+    return upsert_vip_plan(plan_id, **body.model_dump())
+
+
+@app.post("/api/platform/vip/grant")
+async def platform_vip_grant(body: VipGrantIn, _=Depends(_auth)):
+    from platform.vip import grant_vip
+    return grant_vip(body.user_id, body.plan_id, source="admin")
+
+
+@app.get("/api/platform/giftcodes")
+async def platform_giftcodes(_=Depends(_auth)):
+    from platform.giftcode import list_gift_codes
+    return {"codes": list_gift_codes()}
+
+
+@app.post("/api/platform/giftcodes")
+async def platform_giftcodes_create(body: GiftCodeIn, _=Depends(_auth)):
+    from platform.giftcode import create_gift_codes
+    codes = create_gift_codes(
+        plan_id=body.plan_id,
+        count=body.count,
+        prefix=body.prefix,
+        max_uses=body.max_uses,
+        expires_at=body.expires_at,
+        custom_code=body.code,
+    )
+    return {"ok": True, "codes": codes}
+
+
+@app.get("/api/platform/ads")
+async def platform_ads_list(_=Depends(_auth)):
+    from platform.ads import list_ads_contracts
+    return {"contracts": list_ads_contracts()}
+
+
+@app.post("/api/platform/ads")
+async def platform_ads_upsert(body: AdsContractIn, _=Depends(_auth)):
+    from platform.ads import upsert_ads_contract
+    return upsert_ads_contract(
+        body.alias,
+        src_msg_ids=body.src_msg_ids,
+        src_chat_id=body.src_chat_id,
+        active=body.active,
+    )
+
+
+@app.post("/api/platform/ads/{alias}/terminate")
+async def platform_ads_terminate(alias: str, _=Depends(_auth)):
+    from platform.ads import terminate_ads_contract
+    if not terminate_ads_contract(alias):
+        raise HTTPException(404, "Alias không tồn tại")
+    return {"ok": True}
+
+
+@app.post("/api/platform/ads/recheck")
+async def platform_ads_recheck(_=Depends(_auth)):
+    from platform.ads import recheck_all_ads_aliases
+    return recheck_all_ads_aliases()
+
+
+@app.get("/api/platform/users")
+async def platform_users(_=Depends(_auth)):
+    from platform.archive_index import list_users
+    from platform.vip import user_is_vip
+    users = list_users()
+    for u in users:
+        u["is_vip"] = user_is_vip(u["telegram_id"])
+    return {"users": users}
+
+
+@app.get("/api/platform/share/leaderboard")
+async def platform_share_lb(_=Depends(_auth)):
+    from platform.share import leaderboard
+    return {"leaderboard": leaderboard()}
+
+
+@app.get("/api/platform/contributions")
+async def platform_contributions(_=Depends(_auth)):
+    from platform.catalog import list_pending_contributions
+    return {"items": list_pending_contributions()}
+
+
+@app.post("/api/platform/contributions/{cid}/approve")
+async def platform_contrib_approve(cid: int, _=Depends(_auth)):
+    from platform.catalog import approve_contribution
+    r = approve_contribution(cid)
+    if not r:
+        raise HTTPException(404, "Not found")
+    return r
+
+
+@app.post("/api/platform/contributions/{cid}/reject")
+async def platform_contrib_reject(cid: int, _=Depends(_auth)):
+    from platform.catalog import reject_contribution
+    if not reject_contribution(cid):
+        raise HTTPException(404, "Not found")
+    return {"ok": True}
+
+
+@app.get("/api/platform/rollup")
+async def platform_rollup_list(_=Depends(_auth)):
+    from platform.rollup import list_rollups
+    return {"rollups": list_rollups()}
+
+
+@app.post("/api/platform/rollup")
+async def platform_rollup_run(_=Depends(_auth)):
+    from platform.rollup import run_rollup_all
+    results = await run_rollup_all()
+    append_log("info", f"Rollup chạy: {len(results)} bot")
+    return {"ok": True, "results": results}
 
 
 @app.post("/api/platform/days/{day_id}/publish")

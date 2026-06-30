@@ -35,20 +35,21 @@ def sync_bot_from_config(bot_cfg: dict) -> int:
             1 if bot_cfg.get("publish_channels", True) else 0,
             1 if bot_cfg.get("archive_index", True) else 0,
             1 if bot_cfg.get("bot_delivery", True) else 0,
+            int(bot_cfg.get("queue_order") or 0),
         )
         if row:
             bot_id = row["id"]
             conn.execute(
                 """UPDATE bots SET username=?, source_forum_id=?, source_topic_id=?,
                    catalog_topic_id=?, branch=?, enabled=?, publish_channels=?,
-                   archive_index=?, bot_delivery=? WHERE id=?""",
+                   archive_index=?, bot_delivery=?, queue_order=? WHERE id=?""",
                 (*fields, bot_id),
             )
         else:
             cur = conn.execute(
                 """INSERT INTO bots (username, source_forum_id, source_topic_id,
-                   catalog_topic_id, branch, enabled, publish_channels, archive_index, bot_delivery)
-                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                   catalog_topic_id, branch, enabled, publish_channels, archive_index, bot_delivery, queue_order)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
                 fields,
             )
             bot_id = cur.lastrowid
@@ -191,6 +192,20 @@ def list_days(bot_id: int | None = None, limit: int = 60) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def save_delivery_progress(user_id: int, day_id: int, last_seq: int, *, completed: bool = False) -> None:
+    ensure_db()
+    with connect() as conn:
+        conn.execute(
+            """INSERT INTO user_deliveries (user_id, day_id, last_seq_sent, completed, updated_at)
+               VALUES (?,?,?,?,datetime('now'))
+               ON CONFLICT(user_id, day_id) DO UPDATE SET
+               last_seq_sent=excluded.last_seq_sent,
+               completed=excluded.completed,
+               updated_at=datetime('now')""",
+            (user_id, day_id, last_seq, 1 if completed else 0),
+        )
+
+
 def upsert_user(telegram_id: int, **fields) -> None:
     ensure_db()
     with connect() as conn:
@@ -216,15 +231,34 @@ def get_delivery_progress(user_id: int, day_id: int) -> dict | None:
         return row_to_dict(row)
 
 
-def save_delivery_progress(user_id: int, day_id: int, last_seq: int, *, completed: bool = False) -> None:
+def sync_all_bots_from_config(plat: dict | None = None) -> list[int]:
+    from platform.config import list_bots_config
+
+    ids = []
+    for i, b in enumerate(list_bots_config(plat)):
+        b = dict(b)
+        b["queue_order"] = b.get("queue_order", i)
+        ids.append(sync_bot_from_config(b))
+    return ids
+
+
+def list_bots_db() -> list[dict]:
     ensure_db()
     with connect() as conn:
-        conn.execute(
-            """INSERT INTO user_deliveries (user_id, day_id, last_seq_sent, completed, updated_at)
-               VALUES (?,?,?,?,datetime('now'))
-               ON CONFLICT(user_id, day_id) DO UPDATE SET
-               last_seq_sent=excluded.last_seq_sent,
-               completed=excluded.completed,
-               updated_at=datetime('now')""",
-            (user_id, day_id, last_seq, 1 if completed else 0),
-        )
+        return [dict(r) for r in conn.execute("SELECT * FROM bots ORDER BY queue_order, id").fetchall()]
+
+
+def get_bot_db(bot_id: int) -> dict | None:
+    ensure_db()
+    with connect() as conn:
+        return row_to_dict(conn.execute("SELECT * FROM bots WHERE id=?", (bot_id,)).fetchone())
+
+
+def list_users(limit: int = 200) -> list[dict]:
+    ensure_db()
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM users ORDER BY joined_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]

@@ -2783,6 +2783,14 @@ async def _run_scheduled_cycle(*, manual=False):
             )
 
         mark_run_done("ok")
+        try:
+            from platform.config import load_platform_config
+            from platform.ads import recheck_all_ads_aliases
+            if load_platform_config().get("enabled"):
+                r = recheck_all_ads_aliases()
+                append_log("info", f"Platform recheck ads: {r}")
+        except Exception as e:
+            append_log("warn", f"Platform recheck: {e}")
         await _notify("✅ Hoàn thành lượt auto theo lịch — chờ giờ chạy tiếp theo")
 
 
@@ -2812,6 +2820,20 @@ async def _manual_sync_folders(branch: str = BRANCH_ADS):
     label = "Up bài" if branch == BRANCH_PLAIN else "ads"
     await _notify(f"🔄 Sync folder ({label}) — thêm {total_added} kênh mới, tổng {len(pool)} kênh")
     return total_added
+
+
+async def _platform_rollup_loop():
+    """Rollup mục lục tháng — chạy 1 lần/ngày."""
+    while True:
+        await asyncio.sleep(86400)
+        try:
+            from platform.config import load_platform_config
+            from platform.rollup import run_rollup_all
+            if load_platform_config().get("enabled"):
+                r = await run_rollup_all()
+                append_log("info", f"Platform rollup: {len(r)} bot")
+        except Exception as e:
+            append_log("warn", f"Platform rollup: {e}")
 
 
 async def _execute_web_action(action: dict):
@@ -3067,7 +3089,8 @@ async def main():
 
         if load_platform_config().get("enabled"):
             asyncio.ensure_future(start_delivery_bot_background())
-            log("START", "Research Platform bot delivery nền")
+            asyncio.ensure_future(_platform_rollup_loop())
+            log("START", "Research Platform bot delivery + rollup nền")
     except Exception as e:
         log("WARN", f"Platform bot không khởi động: {e}")
 
