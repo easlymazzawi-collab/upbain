@@ -66,6 +66,23 @@ async def _media_count(client, chat_id: int, msg) -> tuple[int, list[int]]:
     return 0, [msg.id]
 
 
+async def _find_oldest_media_cursor(client, chat_id: int, limit: int = 500) -> int | None:
+    """Supergroup không ghim — lấy tin media cũ nhất trong cửa sổ quét."""
+    ids: list[int] = []
+    seen_groups: set[str] = set()
+    async for msg in client.get_chat_history(chat_id, limit=limit):
+        if msg.empty or msg.service:
+            continue
+        if msg.media_group_id:
+            if msg.media_group_id in seen_groups:
+                continue
+            seen_groups.add(msg.media_group_id)
+        mc, _ = await _media_count(client, chat_id, msg)
+        if mc > 0:
+            ids.append(msg.id)
+    return min(ids) if ids else None
+
+
 async def _iter_topic_posts_from(client, chat_id: int, topic_id: int | None, start_msg_id: int):
     """Messages from cursor (forum topic or whole supergroup), oldest→newest."""
     seen_groups: set[str] = set()
@@ -74,7 +91,7 @@ async def _iter_topic_posts_from(client, chat_id: int, topic_id: int | None, sta
     async for msg in client.get_chat_history(chat_id, limit=500, **_history_kw(topic_id)):
         if msg.empty or msg.service:
             continue
-        if msg.id < start_msg_id:
+        if start_msg_id > 0 and msg.id < start_msg_id:
             break
         if msg.media_group_id:
             gid = msg.media_group_id
@@ -113,7 +130,7 @@ async def _count_remaining(client, chat_id: int, topic_id: int | None, from_msg_
     async for msg in client.get_chat_history(chat_id, limit=1000, **_history_kw(topic_id)):
         if msg.empty or msg.service:
             continue
-        if msg.id < from_msg_id:
+        if from_msg_id > 0 and msg.id < from_msg_id:
             break
         if msg.media_group_id:
             if msg.media_group_id in seen_groups:
@@ -169,10 +186,18 @@ async def collect_batch_from_topic(
         except Exception as e:
             log.warning("read pinned msg: %s", e)
 
+    supergroup_auto = False
+    if not cursor_id and tid == 0:
+        cursor_id = await _find_oldest_media_cursor(client, src_chat_id)
+        supergroup_auto = bool(cursor_id)
+
     if not cursor_id:
         rem_p, rem_m = await _count_remaining(client, src_chat_id, tid, 0)
         if not dry_run:
             update_after_scan(src_chat_id, tid, rem_p, rem_m)
+        warn = "⚠️ Nhóm không có bài media (hoặc userbot chưa vào nhóm)."
+        if rem_m > 0:
+            warn = f"⚠️ Có {rem_m} media trong nhóm — ghim bài bắt đầu hoặc dán link tin rồi Lưu."
         return CollectResult(
             posts=[], total_media=0, total_posts=0,
             pinned_msg_id=pinned_id, next_pin_msg_id=None,
@@ -181,7 +206,7 @@ async def collect_batch_from_topic(
             remaining_posts=rem_p, remaining_media=rem_m,
             cursor_msg_id=None,
             sufficient=False,
-            warn="⚠️ Không có tin ghim / cursor trong nhóm nguồn.",
+            warn=warn,
         )
 
     params = resolve_batch_params(pinned_text, topic_cfg, global_cfg)
@@ -238,6 +263,20 @@ async def collect_batch_from_topic(
         update_after_scan(src_chat_id, tid, rem_posts, rem_media, scan_cursor, pinned_id)
 
     warn = check_low_stock(src_chat_id, tid, target_media if sufficient else total_media)
+
+    if not posts:
+        rem_p, rem_m = await _count_remaining(client, src_chat_id, tid, cursor_id or 0)
+        if rem_m > 0 and cursor_id:
+            extra = (
+                f"⚠️ Có {rem_m} media từ msg {cursor_id} nhưng batch trống — "
+                "ghim/dán link đúng bài bắt đầu lượt up."
+            )
+            warn = extra if not warn else f"{warn}\n{extra}"
+        elif rem_m == 0:
+            extra = "⚠️ Không thấy bài media trong nhóm (500 tin gần nhất)."
+            warn = extra if not warn else f"{warn}\n{extra}"
+    elif supergroup_auto and not warn:
+        warn = f"ℹ️ Supergroup: tự lấy từ msg {cursor_id} (chưa ghim)."
 
     return CollectResult(
         posts=posts,

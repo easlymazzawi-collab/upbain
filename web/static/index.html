@@ -786,8 +786,14 @@
         (preview.sufficient
           ? ' · <span class="badge ok">đủ batch</span>'
           : ' · <span class="badge warn">chưa đủ</span>');
+      if (preview.warn) {
+        $("all-batch-summary").innerHTML += `<br><span style="color:var(--warn)">${preview.warn}</span>`;
+      } else if (n === 0 && (preview.remaining_media || 0) > 0) {
+        $("all-batch-summary").innerHTML +=
+          `<br><span style="color:var(--warn)">Có ${preview.remaining_media} media trong nhóm — ghim bài bắt đầu hoặc dán link tin.</span>`;
+      }
       $("all-batch-updated").textContent = preview.updated_at
-        ? `Cập nhật: ${fmtTs(preview.updated_at)}`
+        ? `Cập nhật: ${fmtTs(preview.updated_at)}${preview.cursor_msg_id ? " · cursor msg " + preview.cursor_msg_id : ""}`
         : "";
     }
 

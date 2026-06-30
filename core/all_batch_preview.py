@@ -66,6 +66,10 @@ async def refresh_all_batch_preview(client) -> dict | None:
         "target_ads": int(result.params.get("target_ads") or 0),
         "sufficient": bool(result.sufficient),
         "pinned_msg_id": result.pinned_msg_id,
+        "cursor_msg_id": result.cursor_msg_id,
+        "remaining_posts": result.remaining_posts,
+        "remaining_media": result.remaining_media,
+        "warn": result.warn,
         "updated_at": int(time.time()),
     }
     set_all_batch_preview(preview)
