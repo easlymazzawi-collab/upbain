@@ -1,0 +1,270 @@
+================================================================================
+BỘ CÂU HỎI BRAINSTORM — UpBain Research Platform v2
+(Khi bạn nói "tôi có ý tưởng" — dùng để chốt spec trước khi code)
+================================================================================
+
+Cách dùng:
+  - Trả lời từng mục (có thể ngắn: "ok / không / thêm X").
+  - Câu đã chốt ghi trong DECISIONS.md — mục [ĐÃ CHỐT] bên dưới.
+  - Câu còn mở / bạn sửa ý — để trống hoặc ghi [CẬP NHẬT].
+
+================================================================================
+A. ARCHIVE & ADS (lưu trữ, quảng cáo)
+================================================================================
+
+A1. Khi hết hợp đồng ads, có xóa tin ads trong chat user đã nhận không?
+    [ĐÃ CHỐT] Không xóa chat cũ; lần xem archive SAU mới strip ads.
+
+A2. Archive lưu ở đâu?
+    - Forward media vào forum backup?
+    - Chỉ link + metadata (src_chat_id, msg_id, seq)?
+    [ĐÃ CHỐT] Chỉ link + metadata — không forward vào forum backup.
+
+A3. Stars bán theo gì?
+    - Theo ngày archive?
+    - Theo bộ media (catalog)?
+    - Cả hai?
+    [ĐÃ CHỐT] Cả hai (ngày + bộ media).
+
+A4. User có vào forum backup trực tiếp không?
+    (Gợi ý: không — chỉ xem qua bot.)
+
+A5. Premium emoji / album: giữ nguyên khi bot copy từ nguồn?
+    (Gợi ý: có — copy từ forum nguồn lúc user xem.)
+
+================================================================================
+B. BOT, USERBOT & HẠ TẦNG
+================================================================================
+
+B4. Một nguồn forum = mấy bot token?
+    [ĐÃ CHỐT] 10 nguồn = 10 bot token (queue tuần tự).
+
+B5. Web quản lý thế nào?
+    - ON/OFF từng lớp (up kênh / index / delivery)?
+    - Restart từng bot / all?
+    - Forum admin chung?
+    [ĐÃ CHỐT] Có — web quản bot, ON/OFF lớp, restart đơn/all.
+
+B6. Mấy userbot? Mấy admin web?
+    [ĐÃ CHỐT] 1 userbot, nhiều admin web.
+
+B7. Bot token chết — đổi token mới có mất DB / link không?
+    [ĐÃ CHỐT] Hot-swap token + shared DB; deep link cập nhật @username.
+
+B8. Ai up bài lên kênh đích (L1 publish)?
+    - Chỉ userbot?
+    - Bot token cũng up kênh (Bot API)?
+    - Cả hai, bật/tắt từng lớp?
+    [CẬP NHẬT — bạn vừa nói] Còn dùng bot token để up bài — cần chốt lại:
+      □ Userbot thu nguồn + bot token up kênh
+      □ Bot token vừa up kênh vừa delivery user
+      □ Userbot up kênh như cũ + bot chỉ delivery
+
+B9. Pin bài trên forum nguồn còn không?
+    - Giữ pin userbot?
+    - Thay bằng group admin notify (link bài kế)?
+    (Trong spec: ưu tiên notify group, bỏ pin nguồn.)
+
+================================================================================
+C. LỊCH NGÀY VN & TOPIC
+================================================================================
+
+C9. Mỗi bot map topic/ngày thế nào?
+    [ĐÃ CHỐT] 1 bot = 1 topic/ngày, tên `30-06-2026` (format VN).
+
+C10. Sau 30 ngày archive làm gì?
+    - Xóa text cũ?
+    - Rollup mục lục, giữ lịch sử?
+    [ĐÃ CHỐT] Rollup text mục lục — không xóa cũ.
+
+C11. "Đóng ngày" nghĩa là gì?
+    - Khóa thêm bài?
+    - Recheck ads?
+    - Publish cho bot trả user?
+    - Backup ZIP?
+
+C12. Một ngày VN chạy mấy lượt auto?
+    [ĐÃ CHỐT] 1 lượt/ngày (sau mở config 2 lượt).
+
+C13. Timezone?
+    (Gợi ý: Asia/Ho_Chi_Minh.)
+
+================================================================================
+D. BOT UX — MENU, VIP, STARS
+================================================================================
+
+D13. Reply keyboard mấy hàng, nút gì?
+    [ĐÃ CHỐT] 2 hàng: Xem ngày | Tìm bộ | VIP | Mời bạn | Đóng góp | Hướng dẫn.
+
+D14. Lệnh bot tối thiểu?
+    /start, /today, /day, /find, /vip, /invite, /me, /redeem, deep link ref/ngày?
+
+D15. Gửi ngày cho user:
+    - Tuần tự từng bài?
+    - Delay tối thiểu (giây)?
+    - FloodWait — bỏ bài hay chờ?
+    [ĐÃ CHỐT] Tuần tự, chậm ≥1s, FloodWait sleep không bỏ bài.
+
+D16. VIP / Stars / giftcode:
+    - Plans: ngày / tháng / năm / vĩnh viễn?
+    - Web tạo plan + grant tay?
+    - Giftcode server-wide?
+    [ĐÃ CHỐT] Web VIP + giftcode + Stars đầy đủ.
+
+D17. Sau khi gửi xong ngày — policy forward/share?
+    - User thường có share media không?
+    - VIP được share?
+    [ĐÃ CHỐT] Policy config web; VIP share; mặc định cho phép.
+
+D18. Bắt buộc VIP mới xem archive?
+    (Config: require_vip_for_archive on/off.)
+
+================================================================================
+E. CATALOG & ĐÓNG GÓP TÊN
+================================================================================
+
+E18. User đóng góp tên bộ media:
+    - Forward cho bot + caption tên?
+    - Admin duyệt Telegram hoặc web?
+    - Spam → ban bao lâu?
+    [ĐÃ CHỐT] Forward admin; spam ban 24h → 36h escalate.
+
+E19. /find hỗ trợ tiếng Việt có dấu?
+
+E20. Plain branch (Up bài không ads) tách bot/web menu?
+
+================================================================================
+F. ADS ALIAS & HỢP ĐỒNG
+================================================================================
+
+F23. Ads quản lý thế nào?
+    - Alias → link msg nguồn (đổi bài được)?
+    - /all cuối batch = ads?
+    [ĐÃ CHỐT] Alias + recheck sau up; /all tail = ads.
+
+F24. Chấm dứt HĐ (revoke):
+    - Xóa tin user?
+    - Chỉ strip lần xem archive sau?
+    [ĐÃ CHỐT] Chỉ strip archive view + inactive alias.
+
+F25. Recheck alias: sau mỗi lượt up tự động hay nút tay?
+
+F26. Một ngày / một bot — map nhiều kênh RR?
+    [ĐÃ CHỐT] Có — recheck alias cuối lượt.
+
+================================================================================
+G. WEB DASHBOARD (HTML menu trái)
+================================================================================
+
+G27. Cấu trúc menu trái bạn muốn:
+    Trang chủ | Bot & nguồn | Archive | VIP & Stars | Giftcode |
+    Share event | Ads | User | Phiên nguồn | Settings | Log | Backup
+    Thiếu/thừa mục nào?
+
+G28. Trang Bot & nguồn — form mỗi bot:
+    Bot token · @username · Forum nguồn · Topic nguồn · Catalog topic ·
+    Branch ads/plain · Kênh đích RR · Queue order ·
+    ON/OFF: up kênh · archive index · bot delivery ·
+    Thứ tự kênh trước / bot trước?
+    Forum global: admin_forum · zip topic · notify group · membership · backup?
+
+G29. Trang Archive:
+    Calendar VN · trạng thái ngày (draft / indexed / published / closed) ·
+    Xem sequence link · nút Publish · Đóng ngày · Revoke ads theo alias?
+
+G30. Trang User:
+    Bảng: id, username, tên, ngày join, quốc gia (language_code?), tier,
+    VIP until, Stars spent, spam ban, lượt share click?
+
+G31. Trang Log:
+    Log userbot + log từng bot (INDEX / DELIVER 12/30 / flood wait) + web actions?
+
+G32. Backup / export:
+    Nút tải ZIP + Backup ngay + upload topic Telegram?
+    ZIP gồm: platform.db + auto_config (mask token) + archive_index + bots.json + MANIFEST?
+    Lịch auto backup mỗi 24h?
+
+G33. Web Research Platform tách khỏi dashboard userbot v28?
+    (Sidebar riêng /admin/platform — không vá tab index.html cũ.)
+
+G34. Trang Trang chủ Platform:
+    START orchestrator · trạng thái 10 bot · queue · lượt hôm nay VN · Restart?
+
+================================================================================
+H. SHARE EVENT & MỜI BẠN
+================================================================================
+
+H34. Đếm click share: 1 user = 1 lần hay cộng dồn?
+    [ĐÃ CHỐT] 1 user = 1 click (dedupe).
+
+H35. Trao thưởng đua top tự động hay admin tay?
+    [ĐÃ CHỐT] Admin xử lý tay — không auto trao thưởng.
+
+H36. VIP được share/forward media ngày cũ?
+
+H37. Link share ngày vs link ref user — format deep link?
+    (Numeric token kiểu clender? ref_ABC? share_day_?)
+
+================================================================================
+J. ORCHESTRATOR & BROADCAST
+================================================================================
+
+J40. Thứ tự pipeline mặc định:
+    Up kênh → ghi index → bot delivery — hay đảo được?
+
+J41. Tuần tự 10 nguồn — queue_order trên web?
+
+J42. Group thông báo admin sau mỗi lượt auto gửi gì?
+    Link msg kế · deep link bot · trạng thái kênh · bot/ngày?
+
+J43. Broadcast VIP / all-user:
+    Chọn batch → gửi tuần tự → hỏi Done? khi xong?
+
+================================================================================
+K. DISASTER RECOVERY & BACKUP
+================================================================================
+
+K46. Source of truth khi mất dữ liệu — thứ tự ưu tiên?
+    [ĐÃ CHỐT] 1) Link nguồn  2) Index DB  3) ZIP backup.
+
+K47. Backup ZIP gửi lên đâu?
+    [ĐÃ CHỐT] Topic admin Telegram (forum quản lý).
+
+K48. Bot die giữa delivery seq 15/30 — resume?
+    [ĐÃ CHỐT] user_deliveries.last_seq_sent.
+
+K49. Userbot ban/flood — tắt lớp nào trước?
+
+K50. Import dữ liệu tool cũ (.env, topic_map, session ZIP)?
+
+================================================================================
+M. KHÁC
+================================================================================
+
+M51. Watermark media?
+    [ĐÃ CHỐT] Không.
+
+M52. Membership force-join kênh trước dùng bot? (pattern clender)
+
+M53. Plain vs Ads — user DB VIP có dùng chung?
+
+M54. Sync xóa kênh ↔ xóa archive?
+    [ĐÃ CHỐT] Không cần / bỏ.
+
+================================================================================
+CHECKLIST SAU KHI TRẢ LỜI XONG
+================================================================================
+
+  [ ] A2 archive = link only
+  [ ] A1 ads revoke không xóa chat cũ
+  [ ] B8 ai up kênh — userbot / bot token / cả hai  ← BẠN CẦN CHỐT LẠI
+  [ ] G27–G32 menu web sidebar
+  [ ] G33 tách web admin khỏi index.html v28
+  [ ] 10 bot + 1 userbot + queue
+  [ ] VIP Stars giftcode share ads rollup backup
+
+Cập nhật câu trả lời → ghi vào docs/research-platform/DECISIONS.md
+
+================================================================================
+END
+================================================================================
